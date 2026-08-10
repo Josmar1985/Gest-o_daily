@@ -500,6 +500,15 @@ let ghSyncEmAndamento = false;
 let ghSyncTimeout = null;
 
 function salvar(){
+  // Antes de gravar, reconcilia com o que JÁ está no localStorage agora — protege contra
+  // outra aba deste mesmo navegador ter gravado algo enquanto esta aba estava com dados
+  // antigos na memória (cada aba tem sua própria cópia em memória, mesmo compartilhando
+  // o mesmo armazenamento). Reaproveita a mesma lógica de mesclagem usada com o GitHub.
+  try{
+    const projAtual = JSON.parse(localStorage.getItem(LS_PROJ) || "[]");
+    const regAtual = JSON.parse(localStorage.getItem(LS_REG) || "[]");
+    mesclarRemoto({projetos:projAtual, registros:regAtual, contatos:{}});
+  }catch(e){ /* se o que está no localStorage estiver corrompido, ignora e grava só o que temos */ }
   localStorage.setItem(LS_PROJ, JSON.stringify(PROJETOS));
   localStorage.setItem(LS_REG, JSON.stringify(REGISTROS));
   ghAgendarPush();
