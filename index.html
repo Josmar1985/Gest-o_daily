@@ -995,17 +995,32 @@ function atualizarStatusGh(txt, cor){
 // dado local (possivelmente vazio ou desatualizado) na inicialização.
 async function ghBuscarEMesclar(){
   if(!ghConfigurado()) return null;
+  if(ghSyncEmAndamento){ console.log("[sync] busca ignorada — já tem uma sincronização em andamento"); return null; }
+  ghSyncEmAndamento = true;
   atualizarStatusGh("🔄 buscando…");
-  const remoto = await ghGet();
-  const resumo = mesclarRemoto(remoto.content);
-  GH_SHA = remoto.sha;
-  localStorage.setItem(LS_GH_SHA, GH_SHA||"");
-  localStorage.setItem(LS_PROJ, JSON.stringify(PROJETOS));
-  localStorage.setItem(LS_REG, JSON.stringify(REGISTROS));
-  localStorage.setItem(LS_CONTATOS, JSON.stringify(CONTATOS));
-  montarSelects(); renderTudo();
-  atualizarStatusGh("✓ atualizado às "+new Date().toLocaleTimeString("pt-BR").slice(0,5), "#8FD19E");
-  return resumo;
+  try{
+    const remoto = await ghGet();
+    const remotosRegistros = (remoto.content && remoto.content.registros) ? remoto.content.registros.length : 0;
+    const localAntes = REGISTROS.length;
+    const resumo = mesclarRemoto(remoto.content);
+    console.log(`[sync] buscar: remoto tinha ${remotosRegistros} registro(s) · local tinha ${localAntes} antes · `+
+      `${localAntes} + ${resumo.registrosAdicionados} adicionado(s) + ${resumo.registrosAtualizados} atualizado(s) = ${REGISTROS.length} agora · `+
+      `sha remoto: ${remoto.sha}`);
+    GH_SHA = remoto.sha;
+    localStorage.setItem(LS_GH_SHA, GH_SHA||"");
+    localStorage.setItem(LS_PROJ, JSON.stringify(PROJETOS));
+    localStorage.setItem(LS_REG, JSON.stringify(REGISTROS));
+    localStorage.setItem(LS_CONTATOS, JSON.stringify(CONTATOS));
+    montarSelects(); renderTudo();
+    atualizarStatusGh("✓ atualizado às "+new Date().toLocaleTimeString("pt-BR").slice(0,5), "#8FD19E");
+    return resumo;
+  }catch(err){
+    console.error("[sync] erro ao buscar:", err);
+    atualizarStatusGh("⚠ falha ao atualizar", "#F3B77A");
+    throw err;
+  }finally{
+    ghSyncEmAndamento = false;
+  }
 }
 
 // ---- ghEnviarAgora: busca a versão mais recente, mescla, e SÓ ENTÃO grava — usando sempre
@@ -1050,11 +1065,8 @@ function ghAgendarPush(){
 }
 
 $("btnAtualizarAgora").onclick = async ()=>{
-  if(ghSyncEmAndamento) return;
-  ghSyncEmAndamento = true;
   try{ await ghBuscarEMesclar(); }
-  catch(err){ atualizarStatusGh("⚠ falha ao atualizar", "#F3B77A"); alert("Não consegui buscar do GitHub: "+err.message); }
-  finally{ ghSyncEmAndamento = false; }
+  catch(err){ alert("Não consegui buscar do GitHub: "+err.message); }
 };
 
 $("btnGhConfig").onclick = ()=>{
