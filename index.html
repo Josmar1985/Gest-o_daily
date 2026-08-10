@@ -127,7 +127,9 @@
       <h1>Gestão de Daily — Acompanhamento de Projetos</h1>
       <div class="sub">Passe pelos projetos um a um na reunião + cobre os compromissos no dia seguinte</div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
+      <span id="ghSyncStatus" style="font-size:11px;color:#B9C7DC;white-space:nowrap"></span>
+      <button class="btn btn-soft btn-sm" id="btnGhConfig" style="white-space:nowrap" title="Configurar sincronização com o GitHub da Myralis">🔗 GitHub</button>
       <button class="btn btn-soft btn-sm" id="btnExportarBackup" style="white-space:nowrap" title="Salva um arquivo .json com tudo — use antes de trocar de arquivo/computador">💾 Salvar backup</button>
       <button class="btn btn-soft btn-sm" id="btnImportarBackup" style="white-space:nowrap" title="Restaura um backup salvo anteriormente, sem perder o que já está aqui">⬆ Restaurar backup</button>
       <input type="file" id="fileBackup" accept=".json" hidden>
@@ -377,6 +379,39 @@
   </div>
 </div>
 
+<div class="modal-bg hide" id="modalGhConfig">
+  <div class="modal" style="max-width:520px">
+    <h3>Sincronização com o GitHub</h3>
+    <div class="desc" style="margin-top:-8px">Os dados passam a ser gravados automaticamente num arquivo dentro de um repositório privado da Myralis, e todo mundo que abrir esta ferramenta com a mesma configuração vê e edita a mesma base.</div>
+    <div class="field">
+      <label>Personal Access Token (com permissão de escrita nesse repositório)</label>
+      <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>Organização / usuário</label>
+        <input type="text" id="ghOwner" placeholder="myralis">
+      </div>
+      <div class="field">
+        <label>Repositório</label>
+        <input type="text" id="ghRepo" placeholder="gestao-daily">
+      </div>
+    </div>
+    <div class="field">
+      <label>Caminho do arquivo de dados dentro do repositório</label>
+      <input type="text" id="ghPath" placeholder="dados/gestao_daily.json">
+    </div>
+    <div id="ghConfigMsg" style="font-size:12.5px;color:var(--gray);min-height:18px"></div>
+    <div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:10px">
+      <button class="btn btn-ghost btn-sm" id="ghDesconectar" style="color:var(--red)">Desconectar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-soft btn-sm" id="ghCancelar">Fechar</button>
+        <button class="btn btn-sm" id="ghSalvarConfig">Salvar e sincronizar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg hide" id="modalCompartilhar">
   <div class="modal" style="max-width:560px">
     <h3>Compartilhar resumo</h3>
@@ -445,9 +480,20 @@ let REGISTROS = JSON.parse(localStorage.getItem(LS_REG) || "[]");
 let CONTATOS = JSON.parse(localStorage.getItem(LS_CONTATOS) || "{}"); // nome -> e-mail
 let MEU_NOME = localStorage.getItem(LS_MEUNOME) || "";
 
+const LS_GH_TOKEN="dailyGP_gh_token", LS_GH_OWNER="dailyGP_gh_owner", LS_GH_REPO="dailyGP_gh_repo",
+      LS_GH_PATH="dailyGP_gh_path", LS_GH_SHA="dailyGP_gh_sha";
+let GH_TOKEN = localStorage.getItem(LS_GH_TOKEN) || "";
+let GH_OWNER = localStorage.getItem(LS_GH_OWNER) || "";
+let GH_REPO  = localStorage.getItem(LS_GH_REPO)  || "";
+let GH_PATH  = localStorage.getItem(LS_GH_PATH)  || "";
+let GH_SHA   = localStorage.getItem(LS_GH_SHA)   || null;
+let ghSyncEmAndamento = false;
+let ghSyncTimeout = null;
+
 function salvar(){
   localStorage.setItem(LS_PROJ, JSON.stringify(PROJETOS));
   localStorage.setItem(LS_REG, JSON.stringify(REGISTROS));
+  ghAgendarPush();
 }
 
 // Itens marcados "Resolvido" antes de eu passar a registrar a data de resolução ficavam sem
@@ -747,6 +793,147 @@ $("fileBackup").onchange = async e=>{
     alert("Não consegui ler esse arquivo: "+err.message);
   }
   e.target.value = "";
+};
+
+/* ---------- sincronização com o GitHub (repositório privado da Myralis) ---------- */
+function ghConfigurado(){ return !!(GH_TOKEN && GH_OWNER && GH_REPO && GH_PATH); }
+function ghUrl(){
+  const caminho = GH_PATH.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return `https://api.github.com/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(GH_REPO)}/contents/${caminho}`;
+}
+function ghHeaders(){
+  return {Authorization:`Bearer ${GH_TOKEN}`, Accept:"application/vnd.github+json"};
+}
+async function ghGet(){
+  const res = await fetch(ghUrl(), {headers: ghHeaders()});
+  if(res.status===404) return {content:null, sha:null};
+  if(!res.ok){ const e = new Error(`GitHub respondeu ${res.status} ao ler o arquivo`); e.status=res.status; throw e; }
+  const data = await res.json();
+  const texto = decodeURIComponent(escape(atob(data.content.replace(/\n/g,""))));
+  return {content: JSON.parse(texto), sha: data.sha};
+}
+async function ghPut(conteudo, sha){
+  const body = {
+    message: `Atualização automática — Gestão Daily — ${new Date().toLocaleString("pt-BR")}`,
+    content: btoa(unescape(encodeURIComponent(JSON.stringify(conteudo, null, 2)))),
+  };
+  if(sha) body.sha = sha;
+  const res = await fetch(ghUrl(), {method:"PUT", headers:{...ghHeaders(), "Content-Type":"application/json"}, body: JSON.stringify(body)});
+  if(!res.ok){
+    const err = await res.json().catch(()=>({}));
+    const e = new Error(err.message || `GitHub respondeu ${res.status} ao gravar o arquivo`);
+    e.status = res.status;
+    throw e;
+  }
+  const data = await res.json();
+  return data.content.sha;
+}
+function pacoteAtual(){
+  return {tipo:"gestao_daily_backup", versao:1, exportadoEm:new Date().toISOString(),
+    projetos:PROJETOS, registros:REGISTROS, contatos:CONTATOS, meuNome:MEU_NOME};
+}
+function mesclarRemoto(remoto){
+  if(!remoto) return;
+  const idsProj = new Set(PROJETOS.map(p=>p.id));
+  (remoto.projetos||[]).forEach(p=>{ if(!idsProj.has(p.id)) PROJETOS.push(p); });
+  const idsReg = new Set(REGISTROS.map(r=>r.id));
+  (remoto.registros||[]).forEach(r=>{ if(!idsReg.has(r.id)) REGISTROS.push(r); });
+  CONTATOS = {...(remoto.contatos||{}), ...CONTATOS};
+}
+function atualizarStatusGh(txt, cor){
+  const el = $("ghSyncStatus");
+  if(!el) return;
+  el.textContent = txt;
+  el.style.color = cor || "#B9C7DC";
+}
+
+// Nota sobre limites reais: essa sincronização mescla itens NOVOS de forma segura (nunca perde
+// nem duplica), mas se a MESMA pendência já existente for alterada (status, prazo…) em dois
+// lugares antes de sincronizar, quem sincronizar por último sobrescreve o outro. Pra uma equipe
+// pequena registrando sequencialmente, isso raramente é um problema — sincronizar com frequência
+// reduz ainda mais a chance.
+async function ghSincronizar(comPush){
+  if(!ghConfigurado()) return;
+  if(ghSyncEmAndamento) return;
+  ghSyncEmAndamento = true;
+  atualizarStatusGh("🔄 sincronizando…");
+  try{
+    let remoto = await ghGet();
+    mesclarRemoto(remoto.content);
+    salvar();
+    montarSelects(); renderTudo();
+    if(comPush){
+      try{
+        const novoSha = await ghPut(pacoteAtual(), remoto.sha);
+        GH_SHA = novoSha;
+      }catch(err){
+        if(err.status===409){ // alguém gravou entre o get e o put — busca de novo e tenta uma vez a mais
+          remoto = await ghGet();
+          mesclarRemoto(remoto.content);
+          salvar(); montarSelects(); renderTudo();
+          GH_SHA = await ghPut(pacoteAtual(), remoto.sha);
+        } else { throw err; }
+      }
+    } else {
+      GH_SHA = remoto.sha;
+    }
+    localStorage.setItem(LS_GH_SHA, GH_SHA||"");
+    atualizarStatusGh("✓ sincronizado às "+new Date().toLocaleTimeString("pt-BR").slice(0,5), "#8FD19E");
+  }catch(err){
+    atualizarStatusGh("⚠ falha ao sincronizar", "#F3B77A");
+    console.error("Erro de sincronização com o GitHub:", err);
+    throw err;
+  } finally {
+    ghSyncEmAndamento = false;
+  }
+}
+function ghAgendarPush(){
+  if(!ghConfigurado() || ghSyncEmAndamento) return;
+  clearTimeout(ghSyncTimeout);
+  ghSyncTimeout = setTimeout(()=>{ ghSincronizar(true).catch(()=>{}); }, 2500);
+}
+
+$("btnGhConfig").onclick = ()=>{
+  $("ghToken").value = GH_TOKEN;
+  $("ghOwner").value = GH_OWNER;
+  $("ghRepo").value = GH_REPO;
+  $("ghPath").value = GH_PATH;
+  $("ghConfigMsg").textContent = ghConfigurado() ? "Já conectado. Alterar e salvar reconecta." : "";
+  $("ghConfigMsg").style.color = "var(--gray)";
+  $("modalGhConfig").classList.remove("hide");
+};
+$("ghCancelar").onclick = ()=> $("modalGhConfig").classList.add("hide");
+$("ghSalvarConfig").onclick = async ()=>{
+  const token = $("ghToken").value.trim(), owner = $("ghOwner").value.trim(),
+        repo = $("ghRepo").value.trim(), path = $("ghPath").value.trim();
+  if(!token || !owner || !repo || !path){
+    $("ghConfigMsg").textContent = "Preenche todos os campos.";
+    $("ghConfigMsg").style.color = "var(--red)";
+    return;
+  }
+  GH_TOKEN=token; GH_OWNER=owner; GH_REPO=repo; GH_PATH=path;
+  localStorage.setItem(LS_GH_TOKEN, GH_TOKEN);
+  localStorage.setItem(LS_GH_OWNER, GH_OWNER);
+  localStorage.setItem(LS_GH_REPO, GH_REPO);
+  localStorage.setItem(LS_GH_PATH, GH_PATH);
+  $("ghConfigMsg").textContent = "Testando conexão e sincronizando…";
+  $("ghConfigMsg").style.color = "var(--gray)";
+  try{
+    await ghSincronizar(true);
+    $("ghConfigMsg").textContent = "Conectado e sincronizado com sucesso!";
+    $("ghConfigMsg").style.color = "#2C7A4B";
+    setTimeout(()=> $("modalGhConfig").classList.add("hide"), 1200);
+  }catch(err){
+    $("ghConfigMsg").textContent = "Erro: "+err.message+" — confira token, organização, repositório e caminho.";
+    $("ghConfigMsg").style.color = "var(--red)";
+  }
+};
+$("ghDesconectar").onclick = ()=>{
+  if(!confirm("Desconectar do GitHub? Os dados que já estão neste navegador continuam salvos aqui, só para de sincronizar com o repositório.")) return;
+  GH_TOKEN=""; GH_OWNER=""; GH_REPO=""; GH_PATH=""; GH_SHA=null;
+  [LS_GH_TOKEN,LS_GH_OWNER,LS_GH_REPO,LS_GH_PATH,LS_GH_SHA].forEach(k=>localStorage.removeItem(k));
+  atualizarStatusGh("");
+  $("modalGhConfig").classList.add("hide");
 };
 
 /* ---------- Cobranças Pendentes ---------- */
@@ -1474,6 +1661,11 @@ function pedirPermissaoNotificacao(){
 
 verificarAlertaHoje();
 setInterval(verificarAlertaHoje, 10*60*1000); // reconfere a cada 10 minutos, enquanto a aba ficar aberta
+
+if(ghConfigurado()){
+  ghSincronizar(true).catch(()=>{}); // sincroniza ao abrir, se já estiver configurado
+  setInterval(()=>{ ghSincronizar(false).catch(()=>{}); }, 3*60*1000); // busca o que os outros gravaram, a cada 3 min
+}
 
 </script>
 </body>
