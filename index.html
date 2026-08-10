@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gestão de Daily — Acompanhamento de Projetos</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --ink:#101826; --navy:#0F2A4A; --blue:#2758A8; --blue-soft:#E8EFFA;
+    --red:#B23A2E; --red-soft:#FBEAE7; --amber:#B9791A; --amber-soft:#FCF1E0;
+    --green:#2C7A4B; --green-soft:#E8F4EC; --gray:#5B6472; --line:#E3E7EE;
+    --bg:#F3F5F9; --card:#FFFFFF;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--ink)}
+  header{background:var(--navy);color:#fff;padding:20px 28px;position:relative}
+  header h1{margin:0;font-size:19px;font-weight:800;letter-spacing:.01em}
+  header .sub{font-size:12.5px;color:#B9C7DC;margin-top:3px}
+  nav{display:flex;gap:2px;background:#0C2138;padding:0 24px;overflow-x:auto}
+  nav button{background:none;border:none;color:#AFC1DA;font:inherit;font-weight:700;font-size:13px;
+    padding:12px 16px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+  nav button.on{color:#fff;border-bottom-color:#5B9BF0}
+  nav button:hover{color:#fff}
+  main{max-width:1320px;margin:0 auto;padding:24px 24px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px}
+  .card h2{margin:0 0 4px;font-size:16px;font-weight:800}
+  .card .desc{font-size:12.5px;color:var(--gray);margin-bottom:16px}
+  .hide{display:none !important}
+  label{display:block;font-size:11.5px;font-weight:700;color:var(--gray);text-transform:uppercase;
+    letter-spacing:.04em;margin-bottom:5px}
+  select,input[type=text],input[type=date],textarea{
+    width:100%;border:1.5px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;
+    font-size:13.5px;color:var(--ink);background:#fff}
+  textarea{resize:vertical;min-height:60px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .field{margin-bottom:14px}
+  .btn{border:none;border-radius:8px;padding:10px 18px;font:inherit;font-weight:700;font-size:13.5px;
+    cursor:pointer;background:var(--blue);color:#fff}
+  .btn:hover{background:#1F4B90}
+  .btn:disabled{background:#C7D2E0;cursor:not-allowed}
+  .btn-soft{background:var(--blue-soft);color:var(--blue)}
+  .btn-soft:hover{background:#DCE7F8}
+  .btn-sm{padding:6px 12px;font-size:12px;border-radius:6px}
+  .btn-ghost{background:none;color:var(--gray);text-decoration:underline;padding:4px 0}
+  .btn-lg{padding:14px 28px;font-size:15px;border-radius:10px}
+  .row-item{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px;
+    background:#fff}
+  .row-item.venc{border-color:#EFC9C2;background:var(--red-soft)}
+  .row-item.hoje{border-color:#F0D9A8;background:var(--amber-soft)}
+  .ri-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px}
+  .ri-proj{font-weight:800;font-size:14px;color:var(--navy)}
+  .ri-nota{font-size:13.5px;line-height:1.5;margin-bottom:8px;white-space:pre-wrap}
+  .ri-meta{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--gray);margin-bottom:10px}
+  .ri-meta b{color:var(--ink)}
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;
+    font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
+  .pill-aberto{background:#EDEFF3;color:var(--gray)}
+  .pill-cobrado{background:var(--amber-soft);color:var(--amber)}
+  .pill-resolvido{background:var(--green-soft);color:var(--green)}
+  .pill-pulado{background:#EDEFF3;color:var(--gray)}
+  .trilha{display:flex;align-items:center;gap:4px;margin-left:auto}
+  .trilha .dot{width:9px;height:9px;border-radius:50%;background:#D8DDE6}
+  .trilha .dot.on{background:var(--blue)}
+  .trilha .bar{width:16px;height:2px;background:#D8DDE6}
+  .ri-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .empty{text-align:center;padding:40px 20px;color:var(--gray)}
+  .empty b{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.03em;
+    color:var(--gray);border-bottom:2px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .icon-btn{background:none;border:none;cursor:pointer;color:var(--gray);font-size:15px;padding:2px 6px}
+  .icon-btn:hover{color:var(--red)}
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+  .kpi{background:#fff;border:1px solid var(--line);border-top:3px solid var(--blue);border-radius:10px;
+    padding:14px 16px}
+  .kpi.red{border-top-color:var(--red)}
+  .kpi.amber{border-top-color:var(--amber)}
+  .kpi.green{border-top-color:var(--green)}
+  .kpi .n{font-size:26px;font-weight:800}
+  .kpi .l{font-size:11.5px;color:var(--gray);font-weight:700;text-transform:uppercase}
+  .modal-bg{position:fixed;inset:0;background:rgba(15,20,30,.5);display:flex;align-items:center;
+    justify-content:center;z-index:50;padding:20px}
+  .modal{background:#fff;border-radius:12px;padding:22px;max-width:440px;width:100%}
+  .modal h3{margin:0 0 14px;font-size:15px}
+
+  /* ---- modo reunião ---- */
+  .reuniao-progresso{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;
+    font-size:12.5px;color:var(--gray);font-weight:700}
+  .barra{height:6px;background:var(--line);border-radius:99px;overflow:hidden;margin-bottom:20px}
+  .barra .fill{height:100%;background:var(--blue);transition:width .2s}
+  .reuniao-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:32px}
+  .reuniao-layout{display:grid;grid-template-columns:minmax(0,720px) 1fr;gap:28px;align-items:start}
+  .reuniao-lado{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto}
+  .reuniao-lado h2{font-size:14px}
+  @media (max-width:820px){
+    .reuniao-layout{grid-template-columns:1fr}
+    .reuniao-lado{position:static;max-height:none}
+  }
+  .reuniao-num{font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;
+    letter-spacing:.06em;margin-bottom:6px}
+  .reuniao-nome{font-size:26px;font-weight:800;color:var(--navy);margin-bottom:22px;line-height:1.25}
+  .reuniao-nav{display:flex;justify-content:space-between;align-items:center;margin-top:24px;gap:10px}
+  .reuniao-nav .meio{display:flex;gap:8px}
+  .jump{max-width:280px;margin:0 auto 18px;display:block}
+  .fim-card{text-align:center;padding:50px 30px}
+  .fim-card .big{font-size:42px;margin-bottom:6px}
+  select#jumpProjeto{text-align:center;font-weight:700;color:var(--blue);border-color:var(--blue-soft)}
+</style>
+</head>
+<body>
+
+<header>
+  <div style="position:absolute;top:8px;right:12px;font-size:11.5px;font-weight:700;color:#B9C7DC;
+    background:rgba(255,255,255,.08);padding:4px 10px;border-radius:999px;letter-spacing:.02em">
+    Desenvolvido por Josmar Valentini
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-top:14px">
+    <div>
+      <h1>Gestão de Daily — Acompanhamento de Projetos</h1>
+      <div class="sub">Passe pelos projetos um a um na reunião + cobre os compromissos no dia seguinte</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="btn btn-soft btn-sm" id="btnExportarBackup" style="white-space:nowrap" title="Salva um arquivo .json com tudo — use antes de trocar de arquivo/computador">💾 Salvar backup</button>
+      <button class="btn btn-soft btn-sm" id="btnImportarBackup" style="white-space:nowrap" title="Restaura um backup salvo anteriormente, sem perder o que já está aqui">⬆ Restaurar backup</button>
+      <input type="file" id="fileBackup" accept=".json" hidden>
+      <button class="btn btn-soft btn-sm" id="btnExportarCSV" style="white-space:nowrap">⬇ Exportar CSV</button>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <button class="on" data-tab="reuniao">Reunião do Dia</button>
+  <button data-tab="cobrancas">Cobranças Pendentes</button>
+  <button data-tab="analises">Análises</button>
+  <button data-tab="projetos">Projetos</button>
+  <button data-tab="historico">Histórico</button>
+</nav>
+
+<main>
+
+  <!-- ===== REUNIÃO DO DIA (passa por todos os projetos, um a um) ===== -->
+  <section id="tab-reuniao">
+    <div id="reuniaoSemProjetos" class="card hide">
+      <div class="empty">Cadastre os projetos na aba <b>"Projetos"</b> antes de começar a reunião.</div>
+    </div>
+
+    <div class="reuniao-layout" id="reuniaoLayout">
+      <div>
+        <select id="jumpProjeto" class="jump"></select>
+
+        <div id="reuniaoAndamento">
+          <div class="reuniao-progresso">
+            <span id="reuniaoContagem"></span>
+            <span id="reuniaoData"></span>
+          </div>
+          <div class="barra"><div class="fill" id="reuniaoBarra"></div></div>
+
+          <div class="reuniao-card">
+            <div class="reuniao-num" id="reuniaoNum"></div>
+            <div class="reuniao-nome" id="reuniaoNome"></div>
+
+            <div style="background:#F4F7FB;border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:20px">
+              <label style="margin:0 0 6px">ℹ️ Informações do projeto (contexto geral, sem prazo)</label>
+              <div id="rInfoHistorico" style="max-height:160px;overflow-y:auto;margin-bottom:10px"></div>
+              <div style="display:flex;gap:8px;align-items:flex-start">
+                <textarea id="rInfoNova" placeholder="Nova anotação de contexto — Ex.: decisão tomada, dependência nova, pessoa-chave envolvida…" style="min-height:52px;background:#fff"></textarea>
+                <button class="btn btn-soft btn-sm" id="btnSalvarInfoProjeto" style="white-space:nowrap">+ Adicionar</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>O que foi dito / atividade de hoje</label>
+              <textarea id="rNota" placeholder="Ex.: aguardando aprovação do fornecedor, previsão de fechar até quinta"></textarea>
+            </div>
+            <div class="grid2">
+              <div class="field">
+                <label>Nome (quem ficou responsável)</label>
+                <input type="text" id="rNome" placeholder="nome da pessoa">
+              </div>
+              <div class="field">
+                <label>Prazo</label>
+                <input type="date" id="rPrazo">
+              </div>
+            </div>
+            <div class="desc" style="margin:-6px 0 14px">Um projeto pode ter mais de um assunto — use "+ Adicionar outro item" quantas vezes precisar antes de seguir para o próximo projeto.</div>
+
+            <div class="reuniao-nav">
+              <button class="btn btn-soft" id="btnAnterior">← Anterior</button>
+              <div class="meio">
+                <button class="btn btn-soft" id="btnAdicionarOutro">+ Adicionar outro item</button>
+                <button class="btn btn-ghost" id="btnPular">Pular projeto</button>
+              </div>
+              <button class="btn btn-lg" id="btnProximo">Salvar e próximo →</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="reuniaoFim" class="card hide">
+          <div class="fim-card">
+            <div class="big">✅</div>
+            <h2>Reunião concluída</h2>
+            <div class="desc" id="reuniaoResumo"></div>
+            <button class="btn btn-soft" id="btnRecomecar">Rever do início</button>
+            <button class="btn" id="btnIrCobrancas">Ir para Cobranças Pendentes</button>
+          </div>
+        </div>
+
+        <div id="reuniaoNenhum" class="card hide">
+          <div class="empty">Nenhum projeto selecionado.<br>Escolha um no menu acima para registrar uma anotação — o resumo geral do dia está ao lado.</div>
+        </div>
+      </div>
+
+      <div class="card reuniao-lado">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px">
+          <h2 id="tituloLadoDireito" style="margin:0">Histórico deste projeto</h2>
+          <button class="btn btn-soft btn-sm" id="btnCompartilharResumo" style="white-space:nowrap">📤 Compartilhar</button>
+        </div>
+        <div id="listaLadoDireito"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== COBRANÇAS PENDENTES ===== -->
+  <section id="tab-cobrancas" class="hide">
+    <div class="kpis" id="kpisCobranca"></div>
+    <div class="card">
+      <h2>Para cobrar</h2>
+      <div class="desc">Compromissos ainda não resolvidos, vencidos primeiro. Vai batendo um por um e marca o status conforme confere com o responsável. Clique num cartão acima pra filtrar só aquela situação.</div>
+      <div class="toolbar">
+        <select id="selRespCobranca" style="max-width:220px"><option value="">Todos os responsáveis</option></select>
+        <label style="margin:0;text-transform:none;font-weight:600;color:var(--ink)"><input type="checkbox" id="chkOcultarResolvidos" checked style="width:auto;margin-right:6px">Ocultar resolvidos</label>
+        <button class="link hide" id="btnLimparFiltroCobranca">Limpar filtro</button>
+      </div>
+      <div id="listaCobrancas"></div>
+    </div>
+  </section>
+
+  <!-- ===== ANÁLISES ===== -->
+  <section id="tab-analises" class="hide">
+    <div class="toolbar">
+      <select id="selRespAnalise" style="max-width:260px"><option value="">Todos os responsáveis</option></select>
+      <button class="link hide" id="btnLimparFiltroAn">Limpar filtros</button>
+    </div>
+    <div class="kpis" id="kpisAnalise"></div>
+
+    <div class="card hide" id="cardListaFiltradaAn">
+      <h2 id="tituloListaAn">Itens</h2>
+      <div id="listaFiltradaAn"></div>
+    </div>
+
+    <div class="card">
+      <h2>Composição geral dos compromissos</h2>
+      <div class="desc">De tudo que já teve prazo definido — quanto foi cumprido no prazo, quanto atrasou e quanto ainda está em aberto.</div>
+      <div style="max-width:520px"><canvas id="chartComposicao" height="220"></canvas></div>
+    </div>
+
+    <div class="card">
+      <h2>Por responsável — no prazo, atrasado ou aberto</h2>
+      <div class="desc">Volume de compromissos de cada pessoa, separado por como terminou (ou está) cada um.</div>
+      <div style="height:340px"><canvas id="chartResponsavel"></canvas></div>
+    </div>
+
+    <div class="card">
+      <h2>Tempo médio de resposta por responsável</h2>
+      <div class="desc">Média de dias entre a anotação na daily e a resolução — só considera itens Resolvidos com data real registrada (itens resolvidos antes dessa funcionalidade existir, com data estimada, não entram aqui pra não distorcer a média — mas contam normalmente nos outros cartões e gráficos). Quanto menor, mais rápido a pessoa resolve o que assume.</div>
+      <div style="height:280px"><canvas id="chartTempo"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ===== PROJETOS ===== -->
+  <section id="tab-projetos" class="hide">
+    <div class="card">
+      <h2>Projetos acompanhados</h2>
+      <div class="desc">Cadastre uma vez os projetos. Fica salvo neste navegador.</div>
+      <div class="field">
+        <label>Nome do projeto</label>
+        <input type="text" id="fNovoProjeto" placeholder="Ex.: 3.1 - Automação de Recebimento">
+      </div>
+      <button class="btn" id="btnAddProjeto">Adicionar projeto</button>
+    </div>
+    <div class="card">
+      <h2>Lista (<span id="totalProjetos">0</span>)</h2>
+      <table>
+        <thead><tr><th>Projeto</th><th>Informações</th><th></th></tr></thead>
+        <tbody id="tabelaProjetos"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===== HISTÓRICO ===== -->
+  <section id="tab-historico" class="hide">
+    <div class="card">
+      <h2>Histórico por projeto</h2>
+      <div class="desc">Veja tudo que já foi dito, dia após dia, para não perder o fio do que já foi prometido antes.</div>
+      <div class="toolbar">
+        <select id="filtroProjetoHist"></select>
+      </div>
+      <div id="listaHistorico"></div>
+    </div>
+  </section>
+
+</main>
+
+<div class="modal-bg hide" id="modalFollowup">
+  <div class="modal">
+    <h3>Adicionar nova anotação</h3>
+    <div class="field">
+      <label>O que aconteceu agora</label>
+      <textarea id="fuNota" placeholder="Ex.: cobrado por telefone, novo prazo combinado"></textarea>
+    </div>
+    <div class="field">
+      <label>Novo prazo (se combinou um novo)</label>
+      <input type="date" id="fuPrazo">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-soft btn-sm" id="fuCancelar">Cancelar</button>
+      <button class="btn btn-sm" id="fuSalvar">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg hide" id="modalEditar">
+  <div class="modal">
+    <h3>Editar registro</h3>
+    <div class="field">
+      <label>Projeto</label>
+      <div id="edProjeto" style="font-size:13px;font-weight:700;color:var(--navy);padding:4px 0"></div>
+    </div>
+    <div class="field">
+      <label>O que foi dito / atividade</label>
+      <textarea id="edNota"></textarea>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>Nome (quem ficou responsável)</label>
+        <input type="text" id="edNome">
+      </div>
+      <div class="field">
+        <label>Prazo</label>
+        <input type="date" id="edPrazo">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-soft btn-sm" id="edCancelar">Cancelar</button>
+      <button class="btn btn-sm" id="edSalvar">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg hide" id="modalInfoProjeto">
+  <div class="modal">
+    <h3>Informações do projeto</h3>
+    <div class="field">
+      <label>Projeto</label>
+      <div id="ipProjeto" style="font-size:13px;font-weight:700;color:var(--navy);padding:4px 0"></div>
+    </div>
+    <div class="field">
+      <label>Histórico registrado</label>
+      <div id="ipHistorico" style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px"></div>
+    </div>
+    <div class="field">
+      <label>Nova anotação de contexto</label>
+      <textarea id="ipTexto" placeholder="Ex.: decisão tomada, dependência nova, pessoa-chave envolvida…" style="min-height:80px"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-soft btn-sm" id="ipCancelar">Fechar</button>
+      <button class="btn btn-sm" id="ipSalvar">+ Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg hide" id="modalCompartilhar">
+  <div class="modal" style="max-width:560px">
+    <h3>Compartilhar resumo</h3>
+    <div class="field">
+      <label>O que incluir</label>
+      <select id="cpEscopo">
+        <option value="hoje">Só o que foi registrado hoje</option>
+        <option value="aberto">Tudo que ainda está em aberto (todos os dias)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Responsável</label>
+      <select id="cpResp"><option value="">Todos os responsáveis</option></select>
+    </div>
+    <div class="field">
+      <label>Prévia (o texto abaixo é o que vai ser copiado/baixado/enviado)</label>
+      <textarea id="cpPreview" readonly style="min-height:220px;font-size:12.5px;background:#F7F9FC;font-family:ui-monospace,Consolas,monospace"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:6px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-soft btn-sm" id="cpCopiar">Copiar texto</button>
+        <button class="btn btn-soft btn-sm" id="cpBaixar">⬇ Baixar PDF</button>
+        <button class="btn btn-sm" id="cpEmail">✉ Abrir e-mail pra todos</button>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="cpFechar">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg hide" id="modalCobranca">
+  <div class="modal" style="max-width:520px">
+    <h3>Confirmar cobrança</h3>
+    <div class="desc" style="margin-top:-8px">Tentamos abrir seu programa de e-mail padrão. Se ele abriu certinho, é só confirmar embaixo. Se não abriu, copia a mensagem e cola manualmente onde você manda e-mail.</div>
+    <div class="field">
+      <label>Para</label>
+      <div id="ccPara" style="font-size:13px;padding:6px 0"></div>
+    </div>
+    <div class="field">
+      <label>Assunto</label>
+      <div id="ccAssunto" style="font-size:13px;padding:6px 0;font-weight:700"></div>
+    </div>
+    <div class="field">
+      <label>Mensagem</label>
+      <textarea id="ccCorpo" readonly style="min-height:160px;font-size:12.5px;background:#F7F9FC"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:16px">
+      <button class="btn btn-soft btn-sm" id="ccCopiar">Copiar mensagem</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" id="ccNaoAbriu">Fechar sem marcar</button>
+        <button class="btn btn-sm" id="ccConfirmar">✓ E-mail enviado, marcar como Cobrado</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const LS_PROJ="dailyGP_projetos_v1", LS_REG="dailyGP_registros_v1", LS_CONTATOS="dailyGP_contatos_v1", LS_MEUNOME="dailyGP_meunome_v1";
+const hojeISO = ()=> new Date().toISOString().slice(0,10);
+const brDate = iso => { if(!iso) return "—"; const [y,m,d]=iso.split("-"); return `${d}/${m}/${y}`; };
+function esc(s){ return String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function novoId(){ return Date.now()+"_"+Math.random().toString(36).slice(2,7); }
+
+let PROJETOS = JSON.parse(localStorage.getItem(LS_PROJ) || "[]");
+let REGISTROS = JSON.parse(localStorage.getItem(LS_REG) || "[]");
+let CONTATOS = JSON.parse(localStorage.getItem(LS_CONTATOS) || "{}"); // nome -> e-mail
+let MEU_NOME = localStorage.getItem(LS_MEUNOME) || "";
+
+function salvar(){
+  localStorage.setItem(LS_PROJ, JSON.stringify(PROJETOS));
+  localStorage.setItem(LS_REG, JSON.stringify(REGISTROS));
+}
+
+// Itens marcados "Resolvido" antes de eu passar a registrar a data de resolução ficavam sem
+// essa data e, por isso, saíam das Análises. Preenche com a data de hoje (marcando como
+// estimada, para não distorcer o cálculo de tempo médio de resposta) e persiste uma vez só.
+let precisaSalvarBackfill = false;
+REGISTROS.forEach(r=>{
+  if(r.status==="Resolvido" && !r.resolvidoEm){
+    r.resolvidoEm = hojeISO();
+    r.resolvidoEmEstimado = true;
+    precisaSalvarBackfill = true;
+  }
+});
+if(precisaSalvarBackfill) salvar();
+
+// Carga inicial com os projetos do Programa Crisálida — só entra se ainda não
+// houver nenhum projeto salvo neste navegador (não sobrescreve edições suas).
+const PROJETOS_SEED = ["1.1 - Gestão de ativos SW (COI)", "1.2 - Plataforma de Integração Cloud", "2.1 - Centro 1200", "2.2 - Compliance de Emissão de Documentos", "2.3 - Expansão da Unidade de Faturamento (QUAR)", "3.1 - Automação de Recebimento Fiscal (Inbound)", "3.2 - Planejamento reforma 2027 (etapa 2)", "3.3 - Implementação do split payment", "3.4 - Transferência digital trib. (Aastax)", "3.5 - CNPJ Alfanumérico", "4.1 - Cartões de Crédito", "4.2 - Wflow governança contab. (Lct direto)", "4.3 - Integração de despesas (Concur)", "4.4 - Compensação de Documentos Bloqueados", "5.1 - Governança de Acessos (GRC/IAG)", "5.2 - Modernização de Vendas/Distr. (SD)", "5.3 - Segurança das Informações Comerciais (Revisão de Perfis)", "5.4 - Eficiência Wflow reembolso (user SAP)", "6.1 - Gestão Estratégica de Armazéns (EWM)", "6.2 - Gestão de Compliance de Fornecedores", "7.1 - Digitalização de Processos de P&D (Lote Piloto SAP)", "8.1 - Interligação dados financeiros (Crebinfar)", "8.2 - Padronização de Relatórios de Qualidade", "8.3 - Transparência em Custos de Produção", "8.4 - Melhoria em Relatórios Comerciais", "8.5 - Gestão inteligente devoluções", "8.6 - Saneamento Contábil (uso/consumo)", "8.7 - Gestão Contábil de Bonificações", "8.8 - Compliance ANVISA (Produtos Controlados)", "8.9 - Controle de Qualidade em Liberação de Lote", "9.1 - Segurança em conectividade bancária Bank Manager)", "9.2 - Gestão de Prazos e Cash flow", "10.1 - Saneamento Mestre de Materiais (PDM)", "11.1 - Integração e Planejamento Integrado (S&OP)", "11.2 - Otimização de Documentação de Produção", "11.3 - Digitalização de Compras (e-Procurement)", "11.4 - Saneamento de Dados de Planejamento MRP", "11.5 - Estratégia de Gestão de Transportes (TMS)", "11.6 - Sustentação e Suporte SAP (AMS)", "11.7 - Modernização de Banco Dados Hana", "11.8 - Looker", "11.9 - SQVI", "11.10 - Cortex 4Finance"];
+if(PROJETOS.length===0 && localStorage.getItem(LS_PROJ)===null){
+  PROJETOS = PROJETOS_SEED.map(nome=>({id:novoId(), nome}));
+  salvar();
+}
+
+/* ---------- navegação por abas ---------- */
+document.querySelectorAll("nav button").forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on");
+    document.querySelectorAll("main > section").forEach(s=>s.classList.add("hide"));
+    $("tab-"+b.dataset.tab).classList.remove("hide");
+    renderTudo();
+  };
+});
+
+/* ---------- projetos (cadastro) ---------- */
+$("btnAddProjeto").onclick = ()=>{
+  const nome = $("fNovoProjeto").value.trim();
+  if(!nome){ alert("Digite o nome do projeto."); return; }
+  PROJETOS.push({id:novoId(), nome});
+  $("fNovoProjeto").value="";
+  salvar(); montarSelects(); renderProjetos();
+};
+
+function renderProjetos(){
+  $("totalProjetos").textContent = PROJETOS.length;
+  const tb = $("tabelaProjetos");
+  if(!PROJETOS.length){
+    tb.innerHTML = '<tr><td colspan="3" style="color:var(--gray);text-align:center;padding:24px">Nenhum projeto cadastrado ainda.</td></tr>';
+    return;
+  }
+  tb.innerHTML = PROJETOS.map(p=>{
+    const log = infoLogDe(p);
+    const preview = log.length
+      ? `<b>${log.length}</b> anotação${log.length>1?"ões":""} · última: ${esc(log[log.length-1].texto.slice(0,60))}${log[log.length-1].texto.length>60?"…":""}`
+      : '<span style="color:var(--gray)">— sem informações —</span>';
+    return `<tr>
+      <td>${esc(p.nome)}</td>
+      <td style="max-width:340px">${preview} <button class="icon-btn" onclick="abrirInfoProjeto('${p.id}')" title="Ver/adicionar informações" style="color:var(--blue)">✎</button></td>
+      <td style="text-align:right"><button class="icon-btn" onclick="removerProjeto('${p.id}')" title="Remover">✕</button></td>
+    </tr>`;
+  }).join("");
+}
+function removerProjeto(id){
+  if(!confirm("Remover este projeto? Os registros já lançados continuam no histórico.")) return;
+  PROJETOS = PROJETOS.filter(p=>p.id!==id);
+  salvar(); montarSelects(); renderProjetos(); montarReuniao();
+}
+function nomeProjeto(id){ const p = PROJETOS.find(x=>x.id===id); return p?p.nome:"(projeto removido)"; }
+
+// Histórico de informações do projeto — lista de {data, texto}, nunca sobrescreve.
+// Migra automaticamente quem já tinha usado o campo antigo (texto único, sem data).
+function infoLogDe(p){
+  if(!p.infoLog){
+    p.infoLog = [];
+    if(p.info){ p.infoLog.push({data: hojeISO(), texto: p.info}); delete p.info; }
+  }
+  return p.infoLog;
+}
+function renderInfoLogHTML(p){
+  const log = infoLogDe(p);
+  if(!log.length) return '<div style="color:var(--gray);font-size:12.5px">Nenhuma informação registrada ainda.</div>';
+  return [...log].reverse().map(e=>
+    `<div style="font-size:12.5px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--line)"><b>${brDate(e.data)}:</b> ${esc(e.texto)}</div>`
+  ).join("");
+}
+
+function montarSelects(){
+  const selH = $("filtroProjetoHist");
+  selH.innerHTML = '<option value="">Todos os projetos</option>';
+  PROJETOS.forEach(p=>{ const o=document.createElement("option"); o.value=p.id; o.textContent=p.nome; selH.appendChild(o); });
+
+  const jump = $("jumpProjeto");
+  jump.innerHTML = '<option value="">— Nenhum selecionado (ver tudo) —</option>';
+  PROJETOS.forEach((p,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=p.nome; jump.appendChild(o); });
+}
+
+/* ================= MODO REUNIÃO ================= */
+let idx = 0;         // índice do projeto atual na reunião
+let terminou = false;
+
+function registrosDeHojeDoProjeto(projetoId){
+  return REGISTROS.filter(r=>r.projetoId===projetoId && r.data===hojeISO())
+    .sort((a,b)=> (b.criadoEm||0)-(a.criadoEm||0));
+}
+
+function montarReuniao(){
+  $("reuniaoSemProjetos").classList.toggle("hide", PROJETOS.length>0);
+  const nenhum = idx===-1 && !terminou;
+  $("reuniaoAndamento").classList.toggle("hide", PROJETOS.length===0 || terminou || nenhum);
+  $("reuniaoFim").classList.toggle("hide", !terminou || PROJETOS.length===0);
+  $("reuniaoNenhum").classList.toggle("hide", !nenhum || PROJETOS.length===0);
+  if(!PROJETOS.length) return;
+  if(nenhum){ $("jumpProjeto").value=""; renderLadoDireito(); return; }
+  if(idx>=PROJETOS.length) idx = PROJETOS.length-1;
+  if(idx<0) idx = 0;
+
+  $("jumpProjeto").value = idx;
+  $("reuniaoData").textContent = brDate(hojeISO());
+  $("reuniaoContagem").textContent = `Projeto ${idx+1} de ${PROJETOS.length}`;
+  $("reuniaoBarra").style.width = Math.round(((idx)/PROJETOS.length)*100)+"%";
+
+  const p = PROJETOS[idx];
+  $("reuniaoNum").textContent = `Projeto ${idx+1} de ${PROJETOS.length}`;
+  $("reuniaoNome").textContent = p.nome;
+  $("rInfoHistorico").innerHTML = renderInfoLogHTML(p);
+  $("rInfoNova").value = "";
+
+  // O formulário sempre começa vazio — pode haver vários itens no mesmo projeto,
+  // os que já foram lançados hoje aparecem no painel ao lado, não pré-preenchidos aqui.
+  $("rNota").value = ""; $("rNome").value = ""; $("rPrazo").value = "";
+
+  $("btnAnterior").disabled = idx===0;
+  $("btnProximo").textContent = idx===PROJETOS.length-1 ? "Salvar e concluir ✓" : "Salvar e próximo →";
+  renderLadoDireito();
+}
+
+function formularioVazio(){
+  return !$("rNota").value.trim() && !$("rNome").value.trim() && !$("rPrazo").value;
+}
+
+// Adiciona o conteúdo atual do formulário como UM NOVO item (nunca sobrescreve os já salvos)
+function adicionarItemAtual(){
+  const p = PROJETOS[idx];
+  if(!p || formularioVazio()) return false;
+  REGISTROS.unshift({
+    id:novoId(), projetoId:p.id, data:hojeISO(), criadoEm:Date.now(),
+    nota:$("rNota").value.trim(), compromisso:"",
+    respCompromisso:$("rNome").value.trim(), prazo:$("rPrazo").value || null,
+    status:"Aberto", historico:[],
+  });
+  salvar();
+  return true;
+}
+
+$("btnSalvarInfoProjeto").onclick = ()=>{
+  const p = PROJETOS[idx];
+  if(!p) return;
+  const texto = $("rInfoNova").value.trim();
+  if(!texto) return;
+  infoLogDe(p).push({data: hojeISO(), texto});
+  salvar();
+  $("rInfoNova").value = "";
+  $("rInfoHistorico").innerHTML = renderInfoLogHTML(p);
+  renderProjetos();
+  const btn = $("btnSalvarInfoProjeto");
+  const original = btn.textContent;
+  btn.textContent = "Adicionado ✓";
+  setTimeout(()=>{ btn.textContent = original; }, 1400);
+};
+
+$("btnAdicionarOutro").onclick = ()=>{
+  if(adicionarItemAtual()){
+    $("rNota").value=""; $("rNome").value=""; $("rPrazo").value="";
+    renderLadoDireito();
+  } else {
+    alert("Escreva algo antes de adicionar.");
+  }
+};
+
+$("btnProximo").onclick = ()=>{
+  adicionarItemAtual(); // se o formulário estiver vazio, simplesmente não adiciona nada
+  if(idx < PROJETOS.length-1){ idx++; montarReuniao(); }
+  else { terminou = true; mostrarFim(); }
+};
+$("btnPular").onclick = ()=>{
+  // marca como pulado só se este projeto ainda não tem nenhum item lançado hoje
+  const p = PROJETOS[idx];
+  if(p && registrosDeHojeDoProjeto(p.id).length===0){
+    REGISTROS.unshift({id:novoId(), projetoId:p.id, data:hojeISO(), criadoEm:Date.now(), nota:"",
+      pulado:true, compromisso:"", respCompromisso:"", prazo:null, status:"Pulado", historico:[]});
+    salvar();
+  }
+  if(idx < PROJETOS.length-1){ idx++; montarReuniao(); }
+  else { terminou = true; mostrarFim(); }
+};
+$("btnAnterior").onclick = ()=>{ if(idx>0){ idx--; montarReuniao(); } };
+$("jumpProjeto").onchange = e=>{
+  idx = e.target.value==="" ? -1 : parseInt(e.target.value,10);
+  terminou=false; montarReuniao();
+};
+
+function mostrarFim(){
+  const hoje = REGISTROS.filter(r=>r.data===hojeISO());
+  const comNota = new Set(hoje.filter(r=>!r.pulado).map(r=>r.projetoId)).size;
+  const pulados = hoje.filter(r=>r.pulado).length;
+  $("reuniaoResumo").innerHTML = `<b>${comNota}</b> projeto${comNota===1?"":"s"} com anotação · <b>${pulados}</b> pulado${pulados===1?"":"s"} · de ${PROJETOS.length} no total.`;
+  $("reuniaoAndamento").classList.add("hide");
+  $("reuniaoFim").classList.remove("hide");
+  renderLadoDireito();
+}
+$("btnRecomecar").onclick = ()=>{ idx=0; terminou=false; montarReuniao(); };
+$("btnIrCobrancas").onclick = ()=>{ document.querySelector('nav button[data-tab="cobrancas"]').click(); };
+
+// Painel lateral: contextual ao projeto atual durante a reunião (mostra TODO o histórico
+// daquele projeto, não só hoje, pra você lembrar o que já foi dito antes); vira visão geral
+// do dia quando a reunião termina (nenhum projeto "ativo" no momento).
+function renderLadoDireito(){
+  if(!PROJETOS.length) return;
+  if(!terminou && idx>=0){
+    const p = PROJETOS[idx];
+    $("tituloLadoDireito").textContent = "Histórico deste projeto";
+    const itens = REGISTROS.filter(r=>r.projetoId===p.id).sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0));
+    $("listaLadoDireito").innerHTML = itens.length ? itens.map(r=>itemHTML(r)).join("") :
+      `<div class="empty">Nada lançado ainda para este projeto.</div>`;
+  } else {
+    $("tituloLadoDireito").textContent = "Registrado hoje (todos os projetos)";
+    const hoje = REGISTROS.filter(r=>r.data===hojeISO());
+    $("listaLadoDireito").innerHTML = hoje.length ? hoje.map(r=>itemHTML(r)).join("") :
+      `<div class="empty">Nada registrado hoje ainda.</div>`;
+  }
+  ligarBotoesItem();
+}
+
+/* ---------- exportar CSV ---------- */
+$("btnExportarCSV").onclick = ()=>{
+  const linhas = [["Data","Projeto","Status","Nota","Nome","Prazo"]];
+  const ordenados = [...REGISTROS].sort((a,b)=> a.data.localeCompare(b.data) || (a.criadoEm||0)-(b.criadoEm||0));
+  ordenados.forEach(r=>{
+    linhas.push([
+      brDate(r.data), nomeProjeto(r.projetoId), r.pulado?"Pulado":r.status,
+      r.nota||"", r.respCompromisso||"", r.prazo?brDate(r.prazo):""
+    ]);
+  });
+  const csv = linhas.map(l=> l.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(";")).join("\r\n");
+  const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "daily_registros_"+hojeISO()+".csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+/* ---------- backup completo (projetos + registros + contatos) ---------- */
+// Diferente do que fica salvo automaticamente no navegador (que é preso ao arquivo/local
+// exato), esse backup é um arquivo .json de verdade que você guarda onde quiser e pode
+// restaurar em qualquer computador ou em qualquer versão nova desta ferramenta.
+$("btnExportarBackup").onclick = ()=>{
+  const backup = {tipo:"gestao_daily_backup", versao:1, exportadoEm:new Date().toISOString(),
+    projetos:PROJETOS, registros:REGISTROS, contatos:CONTATOS, meuNome:MEU_NOME};
+  const blob = new Blob([JSON.stringify(backup,null,2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "backup_gestao_daily_"+hojeISO()+".json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+$("btnImportarBackup").onclick = ()=> $("fileBackup").click();
+$("fileBackup").onchange = async e=>{
+  const f = e.target.files[0]; if(!f) return;
+  try{
+    const texto = await f.text();
+    const backup = JSON.parse(texto);
+    if(!backup || backup.tipo!=="gestao_daily_backup" || !Array.isArray(backup.registros)){
+      alert("Esse arquivo não parece ser um backup válido desta ferramenta.");
+      return;
+    }
+    const resumo = `Esse backup tem ${backup.projetos?.length||0} projetos e ${backup.registros?.length||0} registros, `+
+      `de ${backup.exportadoEm ? new Date(backup.exportadoEm).toLocaleString("pt-BR") : "data desconhecida"}.\n\n`+
+      `Você tem hoje, aqui, ${PROJETOS.length} projetos e ${REGISTROS.length} registros.\n\n`+
+      `Vou MESCLAR o backup com o que já está aqui (nada é apagado, e itens repetidos não duplicam). Confirmar?`;
+    if(!confirm(resumo)) { e.target.value=""; return; }
+
+    // mescla por id, sem duplicar
+    const idsProjExistentes = new Set(PROJETOS.map(p=>p.id));
+    (backup.projetos||[]).forEach(p=>{ if(!idsProjExistentes.has(p.id)) PROJETOS.push(p); });
+    const idsRegExistentes = new Set(REGISTROS.map(r=>r.id));
+    (backup.registros||[]).forEach(r=>{ if(!idsRegExistentes.has(r.id)) REGISTROS.push(r); });
+    CONTATOS = {...(backup.contatos||{}), ...CONTATOS}; // mantém os contatos atuais em caso de conflito
+    if(!MEU_NOME && backup.meuNome){ MEU_NOME = backup.meuNome; localStorage.setItem(LS_MEUNOME, MEU_NOME); }
+    localStorage.setItem(LS_CONTATOS, JSON.stringify(CONTATOS));
+    salvar();
+    montarSelects();
+    renderTudo();
+    alert("Backup mesclado com sucesso.");
+  }catch(err){
+    alert("Não consegui ler esse arquivo: "+err.message);
+  }
+  e.target.value = "";
+};
+
+/* ---------- Cobranças Pendentes ---------- */
+function statusPrazo(r){
+  if(!r.prazo) return "semdata";
+  if(r.prazo < hojeISO()) return "venc";
+  if(r.prazo === hojeISO()) return "hoje";
+  return "futuro";
+}
+let filtroCobrancaKpi = null; // null | "venc" | "hoje" | "cobrados" | "resolvidos"
+
+let filtroRespCobranca = ""; // "" = todos os responsáveis
+
+function montarSelectRespCobranca(){
+  const nomes = [...new Set(REGISTROS.map(r=>(r.respCompromisso||"").trim()).filter(Boolean))].sort();
+  const sel = $("selRespCobranca");
+  sel.innerHTML = '<option value="">Todos os responsáveis</option>' +
+    nomes.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  sel.value = filtroRespCobranca;
+}
+
+function renderCobrancas(){
+  montarSelectRespCobranca();
+  const ocultarResolvidos = $("chkOcultarResolvidos").checked;
+  let itens = REGISTROS.filter(r=> !r.pulado && r.prazo
+    && (!ocultarResolvidos || r.status!=="Resolvido" || filtroCobrancaKpi==="resolvidos")
+    && (!filtroRespCobranca || (r.respCompromisso||"").trim()===filtroRespCobranca));
+  itens.sort((a,b)=>{
+    const pa = a.prazo||"9999-99-99", pb = b.prazo||"9999-99-99";
+    if(a.status==="Resolvido" && b.status!=="Resolvido") return 1;
+    if(b.status==="Resolvido" && a.status!=="Resolvido") return -1;
+    return pa.localeCompare(pb);
+  });
+  const venc = itens.filter(r=>statusPrazo(r)==="venc" && r.status!=="Resolvido").length;
+  const hj = itens.filter(r=>statusPrazo(r)==="hoje" && r.status!=="Resolvido").length;
+  const cobrados = itens.filter(r=>r.status==="Cobrado").length;
+  const resolvidos = REGISTROS.filter(r=>r.status==="Resolvido" && (!filtroRespCobranca || (r.respCompromisso||"").trim()===filtroRespCobranca)).length;
+  const marcar = k => filtroCobrancaKpi===k ? 'style="cursor:pointer;outline:2px solid var(--blue);outline-offset:-1px"' : 'style="cursor:pointer"';
+  $("kpisCobranca").innerHTML = `
+    <div class="kpi red" data-kpi="venc" ${marcar("venc")}><div class="n">${venc}</div><div class="l">Vencidos</div></div>
+    <div class="kpi amber" data-kpi="hoje" ${marcar("hoje")}><div class="n">${hj}</div><div class="l">Vencem hoje</div></div>
+    <div class="kpi" data-kpi="cobrados" ${marcar("cobrados")}><div class="n">${cobrados}</div><div class="l">Já cobrados</div></div>
+    <div class="kpi green" data-kpi="resolvidos" ${marcar("resolvidos")}><div class="n">${resolvidos}</div><div class="l">Resolvidos</div></div>`;
+  $("kpisCobranca").querySelectorAll("[data-kpi]").forEach(el=>{
+    el.onclick = ()=>{
+      const k = el.dataset.kpi;
+      filtroCobrancaKpi = filtroCobrancaKpi===k ? null : k;
+      renderCobrancas();
+    };
+  });
+  $("btnLimparFiltroCobranca").classList.toggle("hide", !filtroCobrancaKpi && !filtroRespCobranca);
+
+  if(filtroCobrancaKpi==="venc") itens = itens.filter(r=>statusPrazo(r)==="venc" && r.status!=="Resolvido");
+  else if(filtroCobrancaKpi==="hoje") itens = itens.filter(r=>statusPrazo(r)==="hoje" && r.status!=="Resolvido");
+  else if(filtroCobrancaKpi==="cobrados") itens = itens.filter(r=>r.status==="Cobrado");
+  else if(filtroCobrancaKpi==="resolvidos") itens = itens.filter(r=>r.status==="Resolvido");
+
+  $("listaCobrancas").innerHTML = itens.length ? itens.map(r=>itemHTML(r,true)).join("") :
+    `<div class="empty"><b>Nada aqui.</b><br>${filtroCobrancaKpi||filtroRespCobranca ? 'Nenhum item nessa situação — limpa o filtro pra ver tudo de novo.' : 'Todos os compromissos com prazo estão resolvidos ou não há nenhum cadastrado.'}</div>`;
+  ligarBotoesItem();
+}
+$("chkOcultarResolvidos").onchange = renderCobrancas;
+$("selRespCobranca").onchange = e=>{ filtroRespCobranca = e.target.value; renderCobrancas(); };
+$("btnLimparFiltroCobranca").onclick = ()=>{ filtroCobrancaKpi = null; filtroRespCobranca = ""; $("selRespCobranca").value=""; renderCobrancas(); };
+
+/* ---------- Histórico ---------- */
+function renderHistorico(){
+  const filtro = $("filtroProjetoHist").value;
+  let itens = REGISTROS.filter(r=> !filtro || r.projetoId===filtro);
+  itens.sort((a,b)=> b.data.localeCompare(a.data));
+  $("listaHistorico").innerHTML = itens.length ? itens.map(r=>itemHTML(r)).join("") :
+    `<div class="empty">Nenhum registro encontrado.</div>`;
+  ligarBotoesItem();
+}
+$("filtroProjetoHist").onchange = renderHistorico;
+
+/* ---------- item HTML compartilhado ---------- */
+function itemHTML(r, comAcao){
+  if(r.pulado){
+    return `<div class="row-item">
+      <div class="ri-top">
+        <div class="ri-proj">${esc(nomeProjeto(r.projetoId))}</div>
+        <span class="pill pill-pulado">Pulado</span>
+      </div>
+      <div class="ri-meta"><span>${brDate(r.data)}</span><span>sem anotação nesta reunião</span></div>
+    </div>`;
+  }
+  const sp = statusPrazo(r);
+  const classeVenc = (comAcao && r.status!=="Resolvido") ? (sp==="venc"?" venc":(sp==="hoje"?" hoje":"")) : "";
+  const pillClasse = r.status==="Resolvido"?"pill-resolvido":(r.status==="Cobrado"?"pill-cobrado":"pill-aberto");
+  const trilha = `<div class="trilha" title="Aberto → Cobrado → Resolvido">
+      <span class="dot on"></span><span class="bar"></span>
+      <span class="dot ${r.status!=="Aberto"?"on":""}"></span><span class="bar"></span>
+      <span class="dot ${r.status==="Resolvido"?"on":""}"></span>
+    </div>`;
+  let meta = `<span>${brDate(r.data)}</span>`;
+  if(r.respCompromisso) meta += `<span><b>Nome:</b> ${esc(r.respCompromisso)}</span>`;
+  if(r.prazo) meta += `<span><b>Prazo:</b> ${r.status!=="Resolvido" && sp==="venc" ? `<span style="color:var(--red);font-weight:800">${brDate(r.prazo)} ⚠</span>` : brDate(r.prazo)}</span>`;
+  if(r.status==="Resolvido" && r.resolvidoEm){
+    meta += `<span><b>Resolvido em:</b> ${brDate(r.resolvidoEm)}${r.resolvidoEmEstimado?' <i style="color:var(--gray)">(estimada)</i>':""}</span>`;
+  }
+  if(r.historicoCobranca && r.historicoCobranca.length){
+    meta += `<span><b>Cobrado:</b> ${r.historicoCobranca.length}x (última em ${brDate(r.historicoCobranca[r.historicoCobranca.length-1].data)})</span>`;
+  }
+  let hist = "";
+  if(r.historico && r.historico.length){
+    hist = '<div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:8px">' +
+      r.historico.map(h=>`<div style="font-size:12.5px;color:var(--gray);margin-bottom:4px">↳ <b>${brDate(h.data)}:</b> ${esc(h.nota)}${h.prazo?` <i>(novo prazo: ${brDate(h.prazo)})</i>`:""}</div>`).join("") +
+      '</div>';
+  }
+  let acoes = "";
+  if(comAcao !== false){
+    acoes = `<div class="ri-actions">
+      ${r.status!=="Resolvido" ? `<button class="btn btn-soft btn-sm" data-act="cobraremail" data-id="${r.id}">✉ Cobrar${r.historicoCobranca&&r.historicoCobranca.length?" de novo":""}</button>`:""}
+      ${r.status!=="Resolvido" ? `<button class="btn btn-sm" data-act="resolvido" data-id="${r.id}">Marcar resolvido</button>`:""}
+      ${r.status==="Resolvido" ? `<button class="btn btn-soft btn-sm" data-act="reabrir" data-id="${r.id}">Reabrir</button>`:""}
+      <button class="btn btn-ghost btn-sm" data-act="editar" data-id="${r.id}">✎ editar</button>
+      <button class="btn btn-ghost btn-sm" data-act="followup" data-id="${r.id}">+ nova anotação</button>
+      <button class="btn btn-ghost btn-sm" data-act="excluir" data-id="${r.id}" style="color:var(--red)">excluir</button>
+    </div>`;
+  }
+  return `<div class="row-item${classeVenc}">
+    <div class="ri-top">
+      <div class="ri-proj">${esc(nomeProjeto(r.projetoId))}</div>
+      <span class="pill ${pillClasse}">${r.status}</span>
+      ${trilha}
+    </div>
+    ${r.nota?`<div class="ri-nota">${esc(r.nota)}</div>`:""}
+    <div class="ri-meta">${meta}</div>
+    ${hist}
+    ${acoes}
+  </div>`;
+}
+
+function ligarBotoesItem(){
+  document.querySelectorAll('[data-act]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.id, act = btn.dataset.act;
+      const r = REGISTROS.find(x=>x.id===id);
+      if(!r) return;
+      if(act==="cobrado"){ r.status="Cobrado"; salvar(); renderTudo(); }
+      else if(act==="cobraremail"){ cobrarPorEmail(r); }
+      else if(act==="resolvido"){ r.status="Resolvido"; r.resolvidoEm=hojeISO(); r.resolvidoEmEstimado=false; salvar(); renderTudo(); }
+      else if(act==="reabrir"){ r.status="Aberto"; r.resolvidoEm=null; r.resolvidoEmEstimado=false; salvar(); renderTudo(); }
+      else if(act==="excluir"){ if(confirm("Excluir este registro?")){ REGISTROS = REGISTROS.filter(x=>x.id!==id); salvar(); renderTudo(); } }
+      else if(act==="followup"){ abrirFollowup(id); }
+      else if(act==="editar"){ abrirEdicao(r); }
+    };
+  });
+}
+
+/* ---------- cobrar por e-mail ---------- */
+function cobrarPorEmail(r){
+  if(!MEU_NOME){
+    const nome = prompt("Como você quer assinar os e-mails de cobrança? (fica salvo, só pergunta uma vez)");
+    if(nome && nome.trim()){ MEU_NOME = nome.trim(); localStorage.setItem(LS_MEUNOME, MEU_NOME); }
+  }
+  const nomeResp = (r.respCompromisso||"").trim();
+  let email = nomeResp ? (CONTATOS[nomeResp]||"") : "";
+  if(nomeResp && !email){
+    const digitado = prompt(`E-mail de ${nomeResp}? (fica salvo, só pergunta na primeira vez — pode deixar em branco e preencher direto no e-mail)`);
+    if(digitado && digitado.trim()){ email = digitado.trim(); CONTATOS[nomeResp] = email; localStorage.setItem(LS_CONTATOS, JSON.stringify(CONTATOS)); }
+  }
+
+  const projeto = nomeProjeto(r.projetoId);
+  const vencida = r.prazo && r.prazo < hojeISO();
+  const assunto = `Cobrança — ${projeto}`;
+  const corpo = [
+    nomeResp ? `Olá, ${nomeResp}.` : "Olá,",
+    "",
+    `Sobre o compromisso assumido na reunião do dia ${brDate(r.data)}, referente ao projeto "${projeto}":`,
+    `"${r.nota}"`,
+    "",
+    r.prazo
+      ? (vencida
+        ? `O prazo combinado era ${brDate(r.prazo)} e já passou. Poderia me atualizar sobre a situação e uma nova previsão, por gentileza?`
+        : `O prazo combinado é ${brDate(r.prazo)}. Gostaria de confirmar se segue dentro do previsto.`)
+      : "Gostaria de confirmar a situação atual desse item.",
+    "",
+    "Qualquer impedimento, me avisa por favor.",
+    "",
+    "Att.,",
+    MEU_NOME || "",
+  ].join("\n");
+
+  // tenta abrir o programa de e-mail padrão (precisa estar anexado ao DOM pra funcionar
+  // de forma confiável em todos os navegadores)
+  const link = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`;
+  const a = document.createElement("a"); a.href = link; a.style.display="none";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+
+  // não marca como Cobrado automaticamente — só depois que você confirmar que o e-mail
+  // realmente saiu (ou copiar a mensagem manualmente, caso o programa de e-mail não abra)
+  abrirConfirmacaoCobranca(r, email, assunto, corpo);
+}
+
+function abrirConfirmacaoCobranca(r, email, assunto, corpo){
+  $("ccPara").textContent = email || "(sem e-mail salvo — preencha no seu programa de e-mail)";
+  $("ccAssunto").textContent = assunto;
+  $("ccCorpo").value = corpo;
+  $("modalCobranca").classList.remove("hide");
+  $("ccCopiar").onclick = ()=>{
+    navigator.clipboard.writeText(`Para: ${email}\nAssunto: ${assunto}\n\n${corpo}`).then(()=>{
+      $("ccCopiar").textContent = "Copiado ✓";
+      setTimeout(()=>{ $("ccCopiar").textContent = "Copiar mensagem"; }, 1800);
+    });
+  };
+  $("ccNaoAbriu").onclick = ()=>{ $("modalCobranca").classList.add("hide"); };
+  $("ccConfirmar").onclick = ()=>{
+    r.status = "Cobrado";
+    r.historicoCobranca = r.historicoCobranca || [];
+    r.historicoCobranca.push({data: hojeISO(), canal:"email"});
+    salvar(); renderTudo();
+    $("modalCobranca").classList.add("hide");
+  };
+}
+
+/* ---------- modal de follow-up ---------- */
+let followupAlvo = null;
+function abrirFollowup(id){
+  followupAlvo = id;
+  $("fuNota").value=""; $("fuPrazo").value="";
+  $("modalFollowup").classList.remove("hide");
+}
+$("fuCancelar").onclick = ()=> $("modalFollowup").classList.add("hide");
+$("fuSalvar").onclick = ()=>{
+  const r = REGISTROS.find(x=>x.id===followupAlvo);
+  if(!r) return;
+  const nota = $("fuNota").value.trim();
+  if(!nota){ alert("Escreva o que aconteceu."); return; }
+  r.historico = r.historico || [];
+  r.historico.push({data: hojeISO(), nota, prazo: $("fuPrazo").value || null});
+  if($("fuPrazo").value){ r.prazo = $("fuPrazo").value; r.status = "Aberto"; }
+  salvar();
+  $("modalFollowup").classList.add("hide");
+  renderTudo();
+};
+
+/* ---------- editar registro (corrige erro de digitação, sem criar item novo) ---------- */
+let edicaoAlvo = null;
+function abrirEdicao(r){
+  edicaoAlvo = r.id;
+  $("edProjeto").textContent = nomeProjeto(r.projetoId);
+  $("edNota").value = r.nota || "";
+  $("edNome").value = r.respCompromisso || "";
+  $("edPrazo").value = r.prazo || "";
+  $("modalEditar").classList.remove("hide");
+}
+$("edCancelar").onclick = ()=> $("modalEditar").classList.add("hide");
+$("edSalvar").onclick = ()=>{
+  const r = REGISTROS.find(x=>x.id===edicaoAlvo);
+  if(!r) return;
+  const nota = $("edNota").value.trim();
+  if(!nota){ alert("A atividade não pode ficar em branco."); return; }
+  r.nota = nota;
+  r.respCompromisso = $("edNome").value.trim();
+  r.prazo = $("edPrazo").value || null;
+  salvar();
+  $("modalEditar").classList.add("hide");
+  renderTudo();
+};
+
+/* ---------- informações gerais do projeto (editável também pela aba Projetos) ---------- */
+let infoProjetoAlvo = null;
+function abrirInfoProjeto(id){
+  const p = PROJETOS.find(x=>x.id===id);
+  if(!p) return;
+  infoProjetoAlvo = id;
+  $("ipProjeto").textContent = p.nome;
+  $("ipHistorico").innerHTML = renderInfoLogHTML(p);
+  $("ipTexto").value = "";
+  $("modalInfoProjeto").classList.remove("hide");
+}
+$("ipCancelar").onclick = ()=> $("modalInfoProjeto").classList.add("hide");
+$("ipSalvar").onclick = ()=>{
+  const p = PROJETOS.find(x=>x.id===infoProjetoAlvo);
+  if(!p) return;
+  const texto = $("ipTexto").value.trim();
+  if(!texto) return;
+  infoLogDe(p).push({data: hojeISO(), texto});
+  salvar();
+  $("ipTexto").value = "";
+  $("ipHistorico").innerHTML = renderInfoLogHTML(p);
+  renderProjetos();
+  if(PROJETOS[idx] && PROJETOS[idx].id===infoProjetoAlvo){
+    $("rInfoHistorico").innerHTML = renderInfoLogHTML(p);
+  }
+};
+
+/* ---------- compartilhar resumo (Teams / e-mail) ---------- */
+function montarResumoTexto(escopo, resp){
+  const hoje = hojeISO();
+  let itens = escopo==="hoje"
+    ? REGISTROS.filter(r=>!r.pulado && r.data===hoje)
+    : REGISTROS.filter(r=>!r.pulado && r.status!=="Resolvido");
+  if(resp) itens = itens.filter(r=>(r.respCompromisso||"").trim()===resp);
+
+  const porProjeto = {};
+  itens.forEach(r=>{
+    const nome = nomeProjeto(r.projetoId);
+    porProjeto[nome] = porProjeto[nome] || [];
+    porProjeto[nome].push(r);
+  });
+
+  const quemTxt = resp ? ` — ${resp}` : "";
+  const titulo = escopo==="hoje"
+    ? `📋 Resumo da Daily${quemTxt} — ${brDate(hoje)}`
+    : `📋 Itens em aberto${quemTxt} — posição em ${brDate(hoje)}`;
+  const linhas = [titulo, ""];
+
+  Object.keys(porProjeto).sort().forEach(proj=>{
+    linhas.push(`▸ ${proj}`);
+    const projObj = PROJETOS.find(p=>p.nome===proj);
+    if(projObj){
+      const log = infoLogDe(projObj);
+      log.forEach(e=> linhas.push(`   ℹ️ [${brDate(e.data)}] ${e.texto}`));
+    }
+    porProjeto[proj].forEach(r=>{
+      const quem = (!resp && r.respCompromisso) ? `${r.respCompromisso}: ` : "";
+      const prazo = r.prazo ? ` (prazo: ${brDate(r.prazo)}${statusPrazo(r)==="venc" && r.status!=="Resolvido" ? " ⚠ vencido":""})` : "";
+      const st = r.status && r.status!=="Aberto" ? ` [${r.status}]` : "";
+      linhas.push(`   ${quem}${r.nota}${prazo}${st}`);
+    });
+    linhas.push("");
+  });
+
+  linhas.push("—");
+  linhas.push(`${itens.length} item${itens.length!==1?"s":""} ${escopo==="hoje"?"registrado(s) hoje":"em aberto no total"}${quemTxt}.`);
+  return linhas.join("\n");
+}
+
+function montarSelectRespCompartilhar(){
+  const nomes = [...new Set(REGISTROS.map(r=>(r.respCompromisso||"").trim()).filter(Boolean))].sort();
+  const sel = $("cpResp");
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">Todos os responsáveis</option>' +
+    nomes.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  sel.value = atual;
+}
+
+function atualizarPreviaCompartilhar(){
+  const resp = $("cpResp").value;
+  $("cpPreview").value = montarResumoTexto($("cpEscopo").value, resp);
+  $("cpEmail").textContent = resp ? `✉ Abrir e-mail pra ${resp}` : "✉ Abrir e-mail pra todos";
+}
+
+$("btnCompartilharResumo").onclick = ()=>{
+  $("cpEscopo").value = "hoje";
+  montarSelectRespCompartilhar();
+  $("cpResp").value = "";
+  atualizarPreviaCompartilhar();
+  $("modalCompartilhar").classList.remove("hide");
+};
+$("cpEscopo").onchange = atualizarPreviaCompartilhar;
+$("cpResp").onchange = atualizarPreviaCompartilhar;
+$("cpFechar").onclick = ()=> $("modalCompartilhar").classList.add("hide");
+$("cpCopiar").onclick = ()=>{
+  navigator.clipboard.writeText($("cpPreview").value).then(()=>{
+    $("cpCopiar").textContent = "Copiado ✓";
+    setTimeout(()=>{ $("cpCopiar").textContent = "Copiar texto"; }, 1800);
+  });
+};
+function gerarPdfResumo(escopo, resp){
+  const hoje = hojeISO();
+  let itens = escopo==="hoje"
+    ? REGISTROS.filter(r=>!r.pulado && r.data===hoje)
+    : REGISTROS.filter(r=>!r.pulado && r.status!=="Resolvido");
+  if(resp) itens = itens.filter(r=>(r.respCompromisso||"").trim()===resp);
+
+  const porProjeto = {};
+  itens.forEach(r=>{
+    const nome = nomeProjeto(r.projetoId);
+    porProjeto[nome] = porProjeto[nome] || [];
+    porProjeto[nome].push(r);
+  });
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:"portrait", unit:"pt", format:"a4"});
+  const NAVY=[15,42,74], VERMELHO=[178,58,46], CINZA=[91,100,114], FUNDO=[232,239,250];
+
+  doc.setFillColor(...NAVY);
+  doc.rect(0,0,595,58,"F");
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","bold"); doc.setFontSize(16);
+  doc.text((escopo==="hoje" ? "Resumo da Daily" : "Itens em Aberto") + (resp?` — ${resp}`:""), 40, 30);
+  doc.setFont("helvetica","normal"); doc.setFontSize(10);
+  doc.text(`Posição em ${brDate(hoje)}`, 40, 46);
+
+  const sufixoArquivo = resp ? "_"+resp.toLowerCase().replace(/[^a-z0-9]+/g,"") : "";
+  if(!itens.length){
+    doc.setTextColor(...CINZA); doc.setFontSize(11);
+    doc.text("Nenhum item para este período.", 40, 90);
+    doc.save((escopo==="hoje"?"resumo_daily_":"itens_em_aberto_")+hoje+sufixoArquivo+".pdf");
+    return;
+  }
+
+  const body = [];
+  Object.keys(porProjeto).forEach(proj=>{
+    body.push([{content:proj, colSpan:4, styles:{fontStyle:"bold", fillColor:FUNDO, textColor:NAVY, fontSize:10.5, cellPadding:{top:6,bottom:6,left:6,right:6}}}]);
+    const projObj = PROJETOS.find(p=>p.nome===proj);
+    if(projObj){
+      infoLogDe(projObj).forEach(e=>{
+        body.push([{content:`ℹ️  [${brDate(e.data)}] ${e.texto}`, colSpan:4, styles:{fontStyle:"italic", textColor:CINZA, fontSize:9, cellPadding:{top:4,bottom:4,left:6,right:6}}}]);
+      });
+    }
+    porProjeto[proj].forEach(r=>{
+      const venc = r.prazo && statusPrazo(r)==="venc" && r.status!=="Resolvido";
+      body.push([
+        "",
+        r.nota + (r.status && r.status!=="Aberto" ? `  [${r.status}]` : ""),
+        r.respCompromisso || "—",
+        r.prazo ? brDate(r.prazo)+(venc?" ⚠":"") : "—",
+      ]);
+    });
+  });
+
+  doc.autoTable({
+    startY: 78,
+    head: [["", "Atividade", "Responsável", "Prazo"]],
+    body: body,
+    theme: "plain",
+    styles: {fontSize:9.5, cellPadding:{top:6,bottom:6,left:6,right:6}, valign:"middle", overflow:"linebreak"},
+    headStyles: {fillColor: NAVY, textColor:255, fontStyle:"bold", fontSize:9},
+    columnStyles: {0:{cellWidth:24}, 1:{cellWidth:288}, 2:{cellWidth:95}, 3:{cellWidth:78}},
+    didParseCell: data=>{
+      if(data.section==="body" && data.column.index===3 && typeof data.cell.raw==="string" && data.cell.raw.includes("⚠")){
+        data.cell.styles.textColor = VERMELHO;
+        data.cell.styles.fontStyle = "bold";
+      }
+    },
+    didDrawCell: data=>{
+      if(data.section==="body" && data.column.index===0 && data.row.raw.length===4){
+        const size=9;
+        const x = data.cell.x + (data.cell.width-size)/2;
+        const y = data.cell.y + (data.cell.height-size)/2;
+        doc.setDrawColor(...CINZA); doc.setLineWidth(0.9);
+        doc.rect(x,y,size,size);
+      }
+    },
+  });
+
+  const finalY = doc.lastAutoTable.finalY + 18;
+  doc.setFontSize(9); doc.setTextColor(...CINZA); doc.setFont("helvetica","normal");
+  doc.text(`${itens.length} item${itens.length!==1?"s":""} ${escopo==="hoje"?"registrado(s) hoje":"em aberto no total"}.`, 40, finalY);
+
+  doc.save((escopo==="hoje"?"resumo_daily_":"itens_em_aberto_")+hoje+sufixoArquivo+".pdf");
+}
+
+$("cpBaixar").onclick = ()=>{ gerarPdfResumo($("cpEscopo").value, $("cpResp").value); };
+$("cpEmail").onclick = ()=>{
+  const escopo = $("cpEscopo").value;
+  const resp = $("cpResp").value;
+  const hoje = hojeISO();
+  let itens = escopo==="hoje"
+    ? REGISTROS.filter(r=>!r.pulado && r.data===hoje)
+    : REGISTROS.filter(r=>!r.pulado && r.status!=="Resolvido");
+  if(resp) itens = itens.filter(r=>(r.respCompromisso||"").trim()===resp);
+  if(!itens.length){ alert("Não há itens para essa combinação de escopo/responsável."); return; }
+
+  const nomes = resp ? [resp] : [...new Set(itens.map(r=>(r.respCompromisso||"").trim()).filter(Boolean))];
+  let emails = nomes.map(n=>CONTATOS[n]).filter(Boolean);
+  const semEmail = nomes.filter(n=>!CONTATOS[n]);
+  if(resp && semEmail.length){
+    const digitado = prompt(`E-mail de ${resp}? (fica salvo, só pergunta na primeira vez)`);
+    if(digitado && digitado.trim()){ CONTATOS[resp] = digitado.trim(); localStorage.setItem(LS_CONTATOS, JSON.stringify(CONTATOS)); emails = [digitado.trim()]; }
+  } else if(semEmail.length){
+    alert(`Sem e-mail salvo pra: ${semEmail.join(", ")}. Preenche direto no campo "Para" do e-mail que vai abrir, ou salva o e-mail dessas pessoas clicando em "✉ Cobrar" nos itens delas alguma vez.`);
+  }
+  const assunto = (escopo==="hoje" ? `Resumo da Daily` : `Itens em aberto`) + (resp?` — ${resp}`:"") + ` — ${brDate(hoje)}`;
+  const corpo = $("cpPreview").value;
+  const link = `mailto:${encodeURIComponent(emails.join(","))}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`;
+  if(link.length>1900){
+    alert("Esse resumo ficou grande demais pro e-mail abrir automaticamente com tudo preenchido. Usa \"Copiar texto\" e cola direto no corpo do e-mail.");
+    return;
+  }
+  const a = document.createElement("a"); a.href = link; a.style.display="none";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+};
+
+function renderTudo(){
+  montarReuniao(); renderCobrancas(); renderProjetos(); renderHistorico(); renderAnalises();
+}
+
+/* ================= ANÁLISES ================= */
+let chartsAn = {};
+function diasEntre(a,b){ return Math.round((new Date(b)-new Date(a))/86400000); }
+
+function classificar(r){
+  if(r.status==="Resolvido"){
+    if(!r.resolvidoEm) return "resolvido_sem_data";
+    if(!r.prazo) return "resolvido_sem_prazo";
+    return r.resolvidoEm<=r.prazo ? "no_prazo" : "atrasado";
+  }
+  if(!r.prazo) return "aberto_sem_prazo";
+  return r.prazo<hojeISO() ? "aberto_vencido" : "aberto_no_prazo";
+}
+
+const COR_AN = {no_prazo:"#2C7A4B", atrasado:"#B23A2E", aberto_vencido:"#B9791A",
+  aberto_no_prazo:"#2758A8", resolvido_sem_prazo:"#7A6FA0", aberto_sem_prazo:"#8895A5",
+  resolvido_sem_data:"#B0B7C0"};
+const LABEL_AN = {no_prazo:"No prazo", atrasado:"Atrasado", aberto_vencido:"Aberto — vencido",
+  aberto_no_prazo:"Aberto — no prazo", resolvido_sem_prazo:"Resolvido (sem prazo definido)",
+  aberto_sem_prazo:"Aberto (sem prazo definido)", resolvido_sem_data:"Resolvido (sem data registrada)"};
+const ORDEM_AN = ["no_prazo","atrasado","aberto_vencido","aberto_no_prazo"];
+
+let filtroClassificacaoAn = null;  // null = todos | "no_prazo" | "atrasado" | "aberto_vencido"
+let filtroRespAn = "";             // "" = todos os responsáveis
+
+function montarSelectRespAnalise(){
+  const nomes = [...new Set(REGISTROS.map(r=>(r.respCompromisso||"").trim()).filter(Boolean))].sort();
+  const sel = $("selRespAnalise");
+  sel.innerHTML = '<option value="">Todos os responsáveis</option>' +
+    nomes.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  sel.value = filtroRespAn;
+}
+$("selRespAnalise").onchange = e=>{ filtroRespAn = e.target.value; renderAnalises(); };
+$("btnLimparFiltroAn").onclick = ()=>{
+  filtroClassificacaoAn = null; filtroRespAn = "";
+  $("selRespAnalise").value = "";
+  renderAnalises();
+};
+
+function renderAnalises(){
+  montarSelectRespAnalise();
+  if(typeof Chart==="undefined") return; // sem internet na primeira carga: gráficos ficam em branco, resto do app funciona normal
+  if($("tab-analises").classList.contains("hide")) return; // evita desenhar gráfico em aba escondida (fica com tamanho zero)
+  Object.values(chartsAn).forEach(c=>c && c.destroy());
+
+  $("btnLimparFiltroAn").classList.toggle("hide", !filtroClassificacaoAn && !filtroRespAn);
+
+  // pool base: respeita o filtro de responsável (mas não o de classificação — esse só afeta a lista abaixo)
+  const itens = REGISTROS.filter(r=>!r.pulado && (!filtroRespAn || (r.respCompromisso||"").trim()===filtroRespAn));
+  const classificados = itens.map(r=>({...r, cls:classificar(r)}));
+
+  // ---- KPIs ----
+  const comPrazo = classificados.filter(r=>ORDEM_AN.includes(r.cls));
+  const totalComPrazo = comPrazo.length || 1;
+  const noPrazo = comPrazo.filter(r=>r.cls==="no_prazo").length;
+  const atrasado = comPrazo.filter(r=>r.cls==="atrasado").length;
+  const vencidoAberto = comPrazo.filter(r=>r.cls==="aberto_vencido").length;
+  const resolvidosComData = classificados.filter(r=>r.status==="Resolvido" && r.resolvidoEm && !r.resolvidoEmEstimado);
+  const tempoMedioGeral = resolvidosComData.length
+    ? Math.round(resolvidosComData.reduce((s,r)=>s+diasEntre(r.data,r.resolvidoEm),0)/resolvidosComData.length*10)/10
+    : null;
+  const pct = n => comPrazo.length ? Math.round(n/totalComPrazo*100)+"%" : "—";
+  const kpiCard = (cls, cor, n, label) => `
+    <div class="kpi ${cor}" data-cls="${cls}" style="cursor:pointer;${filtroClassificacaoAn===cls?'outline:2px solid var(--blue);outline-offset:-1px':''}">
+      <div class="n">${n} <span style="font-size:14px;color:var(--gray);font-weight:700">${pct(n)}</span></div>
+      <div class="l">${label}</div>
+    </div>`;
+  $("kpisAnalise").innerHTML =
+    kpiCard("no_prazo","green",noPrazo,"Resolvidos no prazo") +
+    kpiCard("atrasado","red",atrasado,"Resolvidos com atraso") +
+    kpiCard("aberto_vencido","amber",vencidoAberto,"Vencidos, ainda abertos") +
+    `<div class="kpi"><div class="n">${tempoMedioGeral!==null?tempoMedioGeral+"d":"—"}</div><div class="l">Tempo médio de resposta</div></div>`;
+  $("kpisAnalise").querySelectorAll("[data-cls]").forEach(el=>{
+    el.onclick = ()=>{
+      const cls = el.dataset.cls;
+      filtroClassificacaoAn = filtroClassificacaoAn===cls ? null : cls;
+      renderAnalises();
+    };
+  });
+
+  // ---- Lista filtrada (só aparece quando um KPI está selecionado) ----
+  if(filtroClassificacaoAn){
+    const listaItens = comPrazo.filter(r=>r.cls===filtroClassificacaoAn);
+    $("cardListaFiltradaAn").classList.remove("hide");
+    $("tituloListaAn").textContent = `${LABEL_AN[filtroClassificacaoAn]} (${listaItens.length})`;
+    $("listaFiltradaAn").innerHTML = listaItens.length ? listaItens.map(r=>itemHTML(r,false)).join("") :
+      `<div class="empty">Nenhum item nessa situação.</div>`;
+  } else {
+    $("cardListaFiltradaAn").classList.add("hide");
+  }
+
+  // ---- Composição geral (só quem tem prazo definido) ----
+  const contComp = {}; ORDEM_AN.forEach(k=>contComp[k]=0);
+  comPrazo.forEach(r=>contComp[r.cls]++);
+  chartsAn.composicao = new Chart($("chartComposicao"),{type:"doughnut",
+    data:{labels:ORDEM_AN.map(k=>LABEL_AN[k]), datasets:[{
+      data:ORDEM_AN.map(k=>contComp[k]), backgroundColor:ORDEM_AN.map(k=>COR_AN[k]),
+      borderWidth:2, borderColor:"#fff"
+    }]},
+    options:{cutout:"55%",
+      onClick:(evt,els)=>{ if(els.length){ const cls=ORDEM_AN[els[0].index];
+        filtroClassificacaoAn = filtroClassificacaoAn===cls?null:cls; renderAnalises(); } },
+      plugins:{
+      legend:{position:"bottom", labels:{boxWidth:12,font:{size:11}}},
+      datalabels:{color:"#fff",font:{weight:700,size:12},
+        formatter:(v,ctx)=>v>0?`${v} (${Math.round(v/totalComPrazo*100)}%)`:""}
+    }}, plugins:[ChartDataLabels]});
+
+  // ---- Por responsável ----
+  const porResp = {};
+  comPrazo.forEach(r=>{
+    const nome = (r.respCompromisso||"").trim() || "(sem nome)";
+    porResp[nome] = porResp[nome] || {no_prazo:0, atrasado:0, aberto_vencido:0, aberto_no_prazo:0};
+    porResp[nome][r.cls]++;
+  });
+  const respLinhas = Object.entries(porResp).sort((a,b)=>{
+    const totA = Object.values(a[1]).reduce((s,v)=>s+v,0), totB = Object.values(b[1]).reduce((s,v)=>s+v,0);
+    return totB-totA;
+  });
+  chartsAn.responsavel = new Chart($("chartResponsavel"),{type:"bar",
+    data:{labels:respLinhas.map(x=>x[0]), datasets:ORDEM_AN.map(k=>({
+      label:LABEL_AN[k], data:respLinhas.map(x=>x[1][k]), backgroundColor:COR_AN[k], borderRadius:2
+    }))},
+    options:{indexAxis:"y", responsive:true, maintainAspectRatio:false,
+      scales:{x:{stacked:true, beginAtZero:true, ticks:{precision:0}}, y:{stacked:true}},
+      onClick:(evt,els)=>{ if(els.length){
+        const nome = respLinhas[els[0].index][0];
+        filtroRespAn = nome==="(sem nome)" ? "" : nome;
+        $("selRespAnalise").value = filtroRespAn;
+        renderAnalises();
+      } },
+      plugins:{legend:{position:"bottom", labels:{boxWidth:12,font:{size:11}}},
+        datalabels:{color:"#fff",font:{weight:700,size:10},formatter:v=>v>0?v:""}},
+    }, plugins:[ChartDataLabels]});
+
+  // ---- Tempo médio de resposta por responsável ----
+  const tempoPorResp = {};
+  classificados.filter(r=>r.status==="Resolvido" && r.resolvidoEm && !r.resolvidoEmEstimado).forEach(r=>{
+    const nome = (r.respCompromisso||"").trim() || "(sem nome)";
+    tempoPorResp[nome] = tempoPorResp[nome] || [];
+    tempoPorResp[nome].push(diasEntre(r.data, r.resolvidoEm));
+  });
+  const tempoLinhas = Object.entries(tempoPorResp)
+    .map(([nome,arr])=>[nome, Math.round(arr.reduce((s,v)=>s+v,0)/arr.length*10)/10, arr.length])
+    .sort((a,b)=>a[1]-b[1]);
+  chartsAn.tempo = new Chart($("chartTempo"),{type:"bar",
+    data:{labels:tempoLinhas.map(x=>`${x[0]} (${x[2]})`), datasets:[{
+      label:"Dias, em média", data:tempoLinhas.map(x=>x[1]), backgroundColor:"#2758A8", borderRadius:4
+    }]},
+    options:{indexAxis:"y", responsive:true, maintainAspectRatio:false,
+      scales:{x:{beginAtZero:true, title:{display:true,text:"dias"}}},
+      onClick:(evt,els)=>{ if(els.length){
+        const nome = tempoLinhas[els[0].index][0].replace(/\s*\(\d+\)$/,"");
+        filtroRespAn = nome==="(sem nome)" ? "" : nome;
+        $("selRespAnalise").value = filtroRespAn;
+        renderAnalises();
+      } },
+      plugins:{legend:{display:false},
+        datalabels:{anchor:"end",align:"right",color:"#101826",font:{weight:700,size:11},formatter:v=>v+"d"}},
+    }, plugins:[ChartDataLabels]});
+}
+
+montarSelects();
+renderTudo();
+
+// ---------- alerta de itens vencendo hoje: roda ao abrir e depois a cada 10 min, ----------
+// enquanto a aba estiver aberta (mesmo minimizada/em segundo plano). Fechar a aba interrompe
+// tudo — não existe alerta com o painel fechado, isso é limite do navegador, não da ferramenta.
+let bannerAvisoAtual = null;
+let notificadosHoje = new Set(JSON.parse(sessionStorage.getItem("dailyGP_notificadosHoje")||"[]"));
+
+function verificarAlertaHoje(){
+  const hoje = hojeISO();
+  const amanha = new Date(Date.now()+86400000).toISOString().slice(0,10);
+  const relevantes = REGISTROS.filter(r=>!r.pulado && r.prazo && r.prazo<=amanha && r.status!=="Resolvido");
+
+  if(bannerAvisoAtual){ bannerAvisoAtual.remove(); bannerAvisoAtual = null; }
+  if(relevantes.length){
+    const jaVencidos = relevantes.filter(r=>r.prazo<hoje).length;
+    const venceHoje = relevantes.filter(r=>r.prazo===hoje).length;
+    const venceAmanha = relevantes.filter(r=>r.prazo===amanha).length;
+    const partes = [];
+    if(jaVencidos) partes.push(`${jaVencidos} já vencido${jaVencidos>1?"s":""}`);
+    if(venceHoje) partes.push(`${venceHoje} vencendo hoje`);
+    if(venceAmanha) partes.push(`${venceAmanha} vence${venceAmanha>1?"m":""} amanhã`);
+    const banner = document.createElement("div");
+    banner.style.cssText = "position:sticky;top:0;z-index:60;background:#B9791A;color:#fff;padding:10px 20px;"+
+      "display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;font-weight:700;flex-wrap:wrap";
+    banner.innerHTML = `<span>⚠ ${relevantes.length} compromisso${relevantes.length>1?"s":""} pra cobrar — ${partes.join(" · ")}.</span>
+      <span style="display:flex;gap:10px;align-items:center">
+        <span id="avisoStatusNotif" style="font-size:11px;font-weight:600;opacity:.85"></span>
+        <button id="avisoAtivarNotif" style="background:none;border:1px solid rgba(255,255,255,.6);color:#fff;border-radius:6px;padding:4px 10px;font-weight:700;cursor:pointer;font-size:11.5px">🔔 Ativar notificação</button>
+        <button id="avisoIrCobrar" style="background:#fff;color:#B9791A;border:none;border-radius:6px;padding:5px 12px;font-weight:800;cursor:pointer">Ver agora</button>
+        <button id="avisoFechar" style="background:none;border:none;color:#fff;font-size:16px;cursor:pointer">×</button>
+      </span>`;
+    document.body.prepend(banner);
+    bannerAvisoAtual = banner;
+    $("avisoFechar").onclick = ()=> { banner.remove(); bannerAvisoAtual=null; };
+    $("avisoIrCobrar").onclick = ()=>{ banner.remove(); bannerAvisoAtual=null; document.querySelector('nav button[data-tab="cobrancas"]').click(); };
+    atualizarStatusNotif();
+    $("avisoAtivarNotif").onclick = pedirPermissaoNotificacao;
+
+    // dispara notificação do sistema (se já tiver permissão) pra itens ainda não notificados hoje
+    if(typeof Notification!=="undefined" && Notification.permission==="granted"){
+      relevantes.forEach(r=>{
+        if(notificadosHoje.has(r.id)) return;
+        try{
+          new Notification("Cobrança pendente", {
+            body: `${nomeProjeto(r.projetoId)}${r.respCompromisso?" · "+r.respCompromisso:""}\n${r.nota||""}`.slice(0,180),
+          });
+          notificadosHoje.add(r.id);
+        }catch(e){ /* alguns navegadores bloqueiam Notification em file:// mesmo com permissão concedida */ }
+      });
+      sessionStorage.setItem("dailyGP_notificadosHoje", JSON.stringify([...notificadosHoje]));
+    }
+  }
+}
+
+function atualizarStatusNotif(){
+  const el = $("avisoStatusNotif"); if(!el) return;
+  if(typeof Notification==="undefined"){ el.textContent = "(notificação não suportada neste navegador)"; return; }
+  if(Notification.permission==="granted") el.textContent = "🔔 notificação ativa";
+  else if(Notification.permission==="denied") el.textContent = "notificação bloqueada pelo navegador";
+  else el.textContent = "";
+}
+
+function pedirPermissaoNotificacao(){
+  if(typeof Notification==="undefined"){
+    alert("Seu navegador não suporta notificações do sistema. Use o aviso na própria tela mesmo — funciona igual, só não aparece fora do navegador.");
+    return;
+  }
+  Notification.requestPermission().then(perm=>{
+    atualizarStatusNotif();
+    if(perm==="granted"){
+      try{ new Notification("Notificações ativadas", {body:"Você vai receber um aviso do sistema quando algo vencer hoje, enquanto esta aba estiver aberta."}); }
+      catch(e){ alert("A permissão foi concedida, mas este navegador não permitiu a notificação de teste — isso acontece às vezes com arquivos abertos localmente (não por um site). O aviso na tela continua funcionando normalmente de qualquer forma."); }
+    } else if(perm==="denied"){
+      alert("Permissão negada ou bloqueada pelo navegador para arquivos locais. O aviso continua aparecendo aqui na tela normalmente — só não vai aparecer como notificação do sistema.");
+    }
+  });
+}
+
+verificarAlertaHoje();
+setInterval(verificarAlertaHoje, 10*60*1000); // reconfere a cada 10 minutos, enquanto a aba ficar aberta
+
+</script>
+</body>
+</html>
