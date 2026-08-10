@@ -130,6 +130,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
       <span id="ghSyncStatus" style="font-size:11px;color:#B9C7DC;white-space:nowrap"></span>
       <button class="btn btn-soft btn-sm" id="btnGhConfig" style="white-space:nowrap" title="Configurar sincronização com o GitHub da Myralis">🔗 GitHub</button>
+      <button class="btn btn-soft btn-sm" id="btnAtualizarAgora" style="white-space:nowrap" title="Busca agora mesmo o que outras pessoas já gravaram">🔄 Atualizar dados</button>
       <button class="btn btn-soft btn-sm" id="btnExportarBackup" style="white-space:nowrap" title="Salva um arquivo .json com tudo — use antes de trocar de arquivo/computador">💾 Salvar backup</button>
       <button class="btn btn-soft btn-sm" id="btnImportarBackup" style="white-space:nowrap" title="Restaura um backup salvo anteriormente, sem perder o que já está aqui">⬆ Restaurar backup</button>
       <input type="file" id="fileBackup" accept=".json" hidden>
@@ -404,6 +405,10 @@
       <label>Caminho do arquivo de dados dentro do repositório</label>
       <input type="text" id="ghPath" placeholder="dados/gestao_daily.json">
     </div>
+    <div class="field">
+      <label>Branch (opcional — deixe em branco para usar a branch padrão do repositório)</label>
+      <input type="text" id="ghBranch" placeholder="master">
+    </div>
     <div id="ghConfigMsg" style="font-size:12.5px;color:var(--gray);min-height:18px"></div>
     <div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:10px">
       <button class="btn btn-ghost btn-sm" id="ghDesconectar" style="color:var(--red)">Desconectar</button>
@@ -484,11 +489,12 @@ let CONTATOS = JSON.parse(localStorage.getItem(LS_CONTATOS) || "{}"); // nome ->
 let MEU_NOME = localStorage.getItem(LS_MEUNOME) || "";
 
 const LS_GH_TOKEN="dailyGP_gh_token", LS_GH_OWNER="dailyGP_gh_owner", LS_GH_REPO="dailyGP_gh_repo",
-      LS_GH_PATH="dailyGP_gh_path", LS_GH_SHA="dailyGP_gh_sha";
+      LS_GH_PATH="dailyGP_gh_path", LS_GH_SHA="dailyGP_gh_sha", LS_GH_BRANCH="dailyGP_gh_branch";
 let GH_TOKEN = localStorage.getItem(LS_GH_TOKEN) || "";
 let GH_OWNER = localStorage.getItem(LS_GH_OWNER) || "";
 let GH_REPO  = localStorage.getItem(LS_GH_REPO)  || "";
 let GH_PATH  = localStorage.getItem(LS_GH_PATH)  || "";
+let GH_BRANCH = localStorage.getItem(LS_GH_BRANCH) || "";
 let GH_SHA   = localStorage.getItem(LS_GH_SHA)   || null;
 let ghSyncEmAndamento = false;
 let ghSyncTimeout = null;
@@ -642,7 +648,7 @@ function adicionarItemAtual(){
   const p = PROJETOS[idx];
   if(!p || formularioVazio()) return false;
   REGISTROS.unshift({
-    id:novoId(), projetoId:p.id, data:hojeISO(), criadoEm:Date.now(),
+    id:novoId(), projetoId:p.id, data:hojeISO(), criadoEm:Date.now(), atualizadoEm:Date.now(),
     nota:$("rNota").value.trim(), compromisso:"",
     respCompromisso:$("rNome").value.trim(), prazo:$("rPrazo").value || null,
     status:"Aberto", historico:[],
@@ -685,7 +691,7 @@ $("btnPular").onclick = ()=>{
   // marca como pulado só se este projeto ainda não tem nenhum item lançado hoje
   const p = PROJETOS[idx];
   if(p && registrosDeHojeDoProjeto(p.id).length===0){
-    REGISTROS.unshift({id:novoId(), projetoId:p.id, data:hojeISO(), criadoEm:Date.now(), nota:"",
+    REGISTROS.unshift({id:novoId(), projetoId:p.id, data:hojeISO(), criadoEm:Date.now(), atualizadoEm:Date.now(), nota:"",
       pulado:true, compromisso:"", respCompromisso:"", prazo:null, status:"Pulado", historico:[]});
     salvar();
   }
@@ -794,32 +800,53 @@ $("fileBackup").onchange = async e=>{
 };
 
 /* ---------- sincronização com o GitHub (repositório privado da Myralis) ---------- */
+// Regras de conflito adotadas (ver documentação/handoff): cada registro tem um campo
+// atualizadoEm (timestamp). Ao mesclar dois lados com o MESMO id, quem tiver o timestamp
+// mais recente vence, campo a campo (o objeto inteiro é substituído pelo mais novo — não
+// existe merge parcial de um único registro, pra evitar estados inconsistentes). Exclusão
+// (excluido:true) é permanente e vence sobre qualquer edição mais antiga que ela; se o
+// registro for reeditado DEPOIS da exclusão (atualizadoEm mais novo que excluidoEm em ms),
+// a edição mais nova prevalece e desfaz a exclusão.
 function ghConfigurado(){ return !!(GH_TOKEN && GH_OWNER && GH_REPO && GH_PATH); }
 function ghUrl(){
   const caminho = GH_PATH.split("/").filter(Boolean).map(encodeURIComponent).join("/");
-  return `https://api.github.com/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(GH_REPO)}/contents/${caminho}`;
+  let url = `https://api.github.com/repos/${encodeURIComponent(GH_OWNER)}/${encodeURIComponent(GH_REPO)}/contents/${caminho}`;
+  if(GH_BRANCH) url += `?ref=${encodeURIComponent(GH_BRANCH)}`;
+  return url;
 }
 function ghHeaders(){
+  // O token nunca é gravado no HTML nem em nenhum arquivo do repositório — fica só no
+  // localStorage deste navegador (o mesmo lugar onde ficam os dados locais da ferramenta).
   return {Authorization:`Bearer ${GH_TOKEN}`, Accept:"application/vnd.github+json"};
 }
 async function ghGet(){
-  const res = await fetch(ghUrl(), {headers: ghHeaders()});
+  let res;
+  try{ res = await fetch(ghUrl(), {headers: ghHeaders()}); }
+  catch(e){ const err = new Error("Falha de rede ao contatar o GitHub — confira sua internet."); err.status=0; throw err; }
   if(res.status===404) return {content:null, sha:null};
-  if(!res.ok){ const e = new Error(`GitHub respondeu ${res.status} ao ler o arquivo`); e.status=res.status; throw e; }
+  if(res.status===401){ const e = new Error("Token inválido ou expirado (401)."); e.status=401; throw e; }
+  if(res.status===403){ const e = new Error("Sem permissão nesse repositório, ou limite de requisições do GitHub atingido (403)."); e.status=403; throw e; }
+  if(!res.ok){ const e = new Error(`GitHub respondeu ${res.status} ao ler o arquivo.`); e.status=res.status; throw e; }
   const data = await res.json();
   const texto = decodeURIComponent(escape(atob(data.content.replace(/\n/g,""))));
-  return {content: JSON.parse(texto), sha: data.sha};
+  let json;
+  try{ json = JSON.parse(texto); }
+  catch(e){ throw new Error("O arquivo de dados no GitHub está corrompido ou não é um JSON válido."); }
+  return {content: json, sha: data.sha};
 }
 async function ghPut(conteudo, sha){
   const body = {
-    message: `Atualização automática — Gestão Daily — ${new Date().toLocaleString("pt-BR")}`,
+    message: `Gestão Daily — atualização — ${new Date().toLocaleString("pt-BR")}`,
     content: btoa(unescape(encodeURIComponent(JSON.stringify(conteudo, null, 2)))),
   };
   if(sha) body.sha = sha;
-  const res = await fetch(ghUrl(), {method:"PUT", headers:{...ghHeaders(), "Content-Type":"application/json"}, body: JSON.stringify(body)});
+  if(GH_BRANCH) body.branch = GH_BRANCH;
+  let res;
+  try{ res = await fetch(ghUrl().split("?")[0], {method:"PUT", headers:{...ghHeaders(), "Content-Type":"application/json"}, body: JSON.stringify(body)}); }
+  catch(e){ const err = new Error("Falha de rede ao gravar no GitHub — confira sua internet."); err.status=0; throw err; }
   if(!res.ok){
     const err = await res.json().catch(()=>({}));
-    const e = new Error(err.message || `GitHub respondeu ${res.status} ao gravar o arquivo`);
+    const e = new Error(err.message || `GitHub respondeu ${res.status} ao gravar o arquivo.`);
     e.status = res.status;
     throw e;
   }
@@ -827,14 +854,20 @@ async function ghPut(conteudo, sha){
   return data.content.sha;
 }
 function pacoteAtual(){
-  return {tipo:"gestao_daily_backup", versao:1, exportadoEm:new Date().toISOString(),
+  return {tipo:"gestao_daily_backup", versao:2, exportadoEm:new Date().toISOString(),
     projetos:PROJETOS, registros:REGISTROS, contatos:CONTATOS, meuNome:MEU_NOME};
 }
+
+// Mescla o conteúdo remoto DENTRO do estado local em memória (por referência — PROJETOS e
+// REGISTROS continuam sendo os mesmos arrays globais, só com itens adicionados/atualizados).
+// Nunca substitui os arrays inteiros — só nunca é um "wholesale replace" da base local.
 function mesclarRemoto(remoto){
-  if(!remoto) return;
-  // Projetos são mesclados por NOME (não só por id) — evita duplicar os mesmos projetos
-  // quando duas pessoas abriram a ferramenta em navegadores diferentes antes de configurar
-  // a sincronização (cada uma gera ids internos próprios pros mesmos 43 projetos padrão).
+  if(!remoto) return {projetosAdicionados:0, projetosAtualizados:0, registrosAdicionados:0, registrosAtualizados:0};
+  let projetosAdicionados=0, projetosAtualizados=0, registrosAdicionados=0, registrosAtualizados=0;
+
+  // Projetos são casados por NOME (não só por id) — evita duplicar os mesmos projetos quando
+  // duas pessoas abriram a ferramenta em navegadores diferentes antes de sincronizar pela
+  // primeira vez (cada uma gera ids internos próprios pros mesmos projetos padrão).
   const porNomeLocal = {};
   PROJETOS.forEach(p=> porNomeLocal[(p.nome||"").trim()] = p);
   const idsProjLocais = new Set(PROJETOS.map(p=>p.id));
@@ -845,35 +878,60 @@ function mesclarRemoto(remoto){
     const existente = porNomeLocal[nome];
     if(existente){
       if(p.id!==existente.id) remapProjeto[p.id] = existente.id;
-      // migra o histórico de informações do projeto remoto pro local, se tiver algo novo
       if(p.infoLog && p.infoLog.length){
         existente.infoLog = existente.infoLog || [];
         const chavesLocais = new Set(existente.infoLog.map(e=>e.data+"|"+e.texto));
-        p.infoLog.forEach(e=>{ if(!chavesLocais.has(e.data+"|"+e.texto)) existente.infoLog.push(e); });
+        let mudou = false;
+        p.infoLog.forEach(e=>{ if(!chavesLocais.has(e.data+"|"+e.texto)){ existente.infoLog.push(e); mudou=true; } });
+        if(mudou) projetosAtualizados++;
       }
     } else if(!idsProjLocais.has(p.id)){
       PROJETOS.push(p);
       porNomeLocal[nome] = p;
       idsProjLocais.add(p.id);
+      projetosAdicionados++;
     }
   });
 
+  // Registros: cruza por id. Novo id -> adiciona. Id já existente -> resolve conflito por
+  // atualizadoEm (quem editou por último vence o registro inteiro), com exclusão permanente
+  // a não ser que exista uma edição comprovadamente posterior à exclusão.
   const porIdLocal = {};
   REGISTROS.forEach(r=> porIdLocal[r.id] = r);
   (remoto.registros||[]).forEach(r=>{
     const local = porIdLocal[r.id];
-    if(local){
-      // se qualquer um dos dois lados marcou como excluído, o exclusão vence
-      // (evita o item "voltar" quando alguém sincroniza com uma cópia antiga, ainda não excluída)
-      if(r.excluido && !local.excluido){ local.excluido = true; local.excluidoEm = r.excluidoEm || hojeISO(); }
+    if(!local){
+      const copia = {...r};
+      if(remapProjeto[copia.projetoId]) copia.projetoId = remapProjeto[copia.projetoId];
+      REGISTROS.push(copia);
+      porIdLocal[copia.id] = copia;
+      registrosAdicionados++;
       return;
     }
-    const copia = {...r};
-    if(remapProjeto[copia.projetoId]) copia.projetoId = remapProjeto[copia.projetoId];
-    REGISTROS.push(copia);
-    porIdLocal[copia.id] = copia;
+    const tLocal = local.atualizadoEm || local.criadoEm || 0;
+    const tRemoto = r.atualizadoEm || r.criadoEm || 0;
+
+    // exclusão é permanente, a não ser que o OUTRO lado tenha uma edição mais nova que a exclusão
+    const remotoExcluidoTravado = r.excluido && tRemoto >= tLocal;
+    const localExcluidoTravado = local.excluido && tLocal >= tRemoto;
+    if(remotoExcluidoTravado && !localExcluidoTravado){
+      Object.assign(local, r);
+      if(remapProjeto[local.projetoId]) local.projetoId = remapProjeto[local.projetoId];
+      registrosAtualizados++;
+      return;
+    }
+    if(localExcluidoTravado) return; // exclusão local vence, ignora o remoto
+
+    // sem exclusão em jogo: quem editou por último vence o registro inteiro
+    if(tRemoto > tLocal){
+      Object.assign(local, r);
+      if(remapProjeto[local.projetoId]) local.projetoId = remapProjeto[local.projetoId];
+      registrosAtualizados++;
+    }
+    // se tLocal >= tRemoto, mantém o local (é igual ou mais novo) — nada a fazer
   });
   CONTATOS = {...(remoto.contatos||{}), ...CONTATOS};
+  return {projetosAdicionados, projetosAtualizados, registrosAdicionados, registrosAtualizados};
 }
 
 // Corrige duplicatas que já existem hoje (mesmo nome de projeto, ids diferentes):
@@ -916,7 +974,7 @@ $("btnConsolidarDup").onclick = async ()=>{
     msg += "\n\nEnviando a correção pro GitHub, pra todo mundo receber…";
     alert(msg);
     try{
-      await ghSincronizar(true);
+      await ghEnviarAgora();
       alert("Correção enviada com sucesso. Da próxima vez que cada pessoa sincronizar, o número corrigido chega pra ela também.");
     }catch(err){
       alert("A correção ficou salva aqui, mas não consegui enviar pro GitHub agora: "+err.message+". Tenta de novo em alguns minutos, ou clique em \"🔗 GitHub\" pra verificar a configuração.");
@@ -932,57 +990,79 @@ function atualizarStatusGh(txt, cor){
   el.style.color = cor || "#B9C7DC";
 }
 
-// Nota sobre limites reais: essa sincronização mescla itens NOVOS de forma segura (nunca perde
-// nem duplica), mas se a MESMA pendência já existente for alterada (status, prazo…) em dois
-// lugares antes de sincronizar, quem sincronizar por último sobrescreve o outro. Pra uma equipe
-// pequena registrando sequencialmente, isso raramente é um problema — sincronizar com frequência
-// reduz ainda mais a chance.
-async function ghSincronizar(comPush){
-  if(!ghConfigurado()) return;
-  if(ghSyncEmAndamento) return;
-  ghSyncEmAndamento = true;
-  atualizarStatusGh("🔄 sincronizando…");
-  try{
-    let remoto = await ghGet();
-    mesclarRemoto(remoto.content);
-    salvar();
-    montarSelects(); renderTudo();
-    if(comPush){
-      try{
-        const novoSha = await ghPut(pacoteAtual(), remoto.sha);
-        GH_SHA = novoSha;
-      }catch(err){
-        if(err.status===409){ // alguém gravou entre o get e o put — busca de novo e tenta uma vez a mais
-          remoto = await ghGet();
-          mesclarRemoto(remoto.content);
-          salvar(); montarSelects(); renderTudo();
-          GH_SHA = await ghPut(pacoteAtual(), remoto.sha);
-        } else { throw err; }
-      }
-    } else {
-      GH_SHA = remoto.sha;
-    }
-    localStorage.setItem(LS_GH_SHA, GH_SHA||"");
-    atualizarStatusGh("✓ sincronizado às "+new Date().toLocaleTimeString("pt-BR").slice(0,5), "#8FD19E");
-  }catch(err){
-    atualizarStatusGh("⚠ falha ao sincronizar", "#F3B77A");
-    console.error("Erro de sincronização com o GitHub:", err);
-    throw err;
-  } finally {
-    ghSyncEmAndamento = false;
-  }
+// ---- ghBuscarEmesclar: SÓ lê o GitHub e mescla no estado local. Nunca grava nada remoto.
+// Usada ao abrir a ferramenta e na checagem periódica — satisfaz a regra de nunca empurrar
+// dado local (possivelmente vazio ou desatualizado) na inicialização.
+async function ghBuscarEMesclar(){
+  if(!ghConfigurado()) return null;
+  atualizarStatusGh("🔄 buscando…");
+  const remoto = await ghGet();
+  const resumo = mesclarRemoto(remoto.content);
+  GH_SHA = remoto.sha;
+  localStorage.setItem(LS_GH_SHA, GH_SHA||"");
+  localStorage.setItem(LS_PROJ, JSON.stringify(PROJETOS));
+  localStorage.setItem(LS_REG, JSON.stringify(REGISTROS));
+  localStorage.setItem(LS_CONTATOS, JSON.stringify(CONTATOS));
+  montarSelects(); renderTudo();
+  atualizarStatusGh("✓ atualizado às "+new Date().toLocaleTimeString("pt-BR").slice(0,5), "#8FD19E");
+  return resumo;
 }
+
+// ---- ghEnviarAgora: busca a versão mais recente, mescla, e SÓ ENTÃO grava — usando sempre
+// o sha mais atual. Em caso de HTTP 409 (alguém gravou no meio do caminho), busca de novo,
+// mescla de novo e tenta gravar outra vez, até 3 tentativas.
+async function ghEnviarAgora(){
+  if(!ghConfigurado()) return;
+  atualizarStatusGh("🔄 sincronizando…");
+  let ultimaExcecao = null;
+  for(let tentativa=1; tentativa<=3; tentativa++){
+    try{
+      const remoto = await ghGet();
+      mesclarRemoto(remoto.content);
+      salvar();
+      montarSelects(); renderTudo();
+      const novoSha = await ghPut(pacoteAtual(), remoto.sha);
+      GH_SHA = novoSha;
+      localStorage.setItem(LS_GH_SHA, GH_SHA||"");
+      atualizarStatusGh("✓ sincronizado às "+new Date().toLocaleTimeString("pt-BR").slice(0,5), "#8FD19E");
+      return;
+    }catch(err){
+      ultimaExcecao = err;
+      if(err.status===409){ continue; } // conflito de gravação — tenta de novo do zero
+      break; // qualquer outro erro não adianta insistir sozinho
+    }
+  }
+  atualizarStatusGh("⚠ falha ao sincronizar", "#F3B77A");
+  console.error("Erro de sincronização com o GitHub:", ultimaExcecao);
+  throw ultimaExcecao;
+}
+
+// salvar() só AGENDA um envio (debounce de 2,5s) — nunca envia de dentro do carregamento
+// inicial da página. ghAgendarPush é a ÚNICA porta de entrada pra gravação automática.
 function ghAgendarPush(){
   if(!ghConfigurado() || ghSyncEmAndamento) return;
   clearTimeout(ghSyncTimeout);
-  ghSyncTimeout = setTimeout(()=>{ ghSincronizar(true).catch(()=>{}); }, 2500);
+  ghSyncTimeout = setTimeout(()=>{
+    if(ghSyncEmAndamento) return;
+    ghSyncEmAndamento = true;
+    ghEnviarAgora().catch(()=>{}).finally(()=>{ ghSyncEmAndamento = false; });
+  }, 2500);
 }
+
+$("btnAtualizarAgora").onclick = async ()=>{
+  if(ghSyncEmAndamento) return;
+  ghSyncEmAndamento = true;
+  try{ await ghBuscarEMesclar(); }
+  catch(err){ atualizarStatusGh("⚠ falha ao atualizar", "#F3B77A"); alert("Não consegui buscar do GitHub: "+err.message); }
+  finally{ ghSyncEmAndamento = false; }
+};
 
 $("btnGhConfig").onclick = ()=>{
   $("ghToken").value = GH_TOKEN;
   $("ghOwner").value = GH_OWNER;
   $("ghRepo").value = GH_REPO;
   $("ghPath").value = GH_PATH;
+  $("ghBranch").value = GH_BRANCH;
   $("ghConfigMsg").textContent = ghConfigurado() ? "Já conectado. Alterar e salvar reconecta." : "";
   $("ghConfigMsg").style.color = "var(--gray)";
   $("modalGhConfig").classList.remove("hide");
@@ -990,33 +1070,35 @@ $("btnGhConfig").onclick = ()=>{
 $("ghCancelar").onclick = ()=> $("modalGhConfig").classList.add("hide");
 $("ghSalvarConfig").onclick = async ()=>{
   const token = $("ghToken").value.trim(), owner = $("ghOwner").value.trim(),
-        repo = $("ghRepo").value.trim(), path = $("ghPath").value.trim();
+        repo = $("ghRepo").value.trim(), path = $("ghPath").value.trim(),
+        branch = $("ghBranch").value.trim();
   if(!token || !owner || !repo || !path){
-    $("ghConfigMsg").textContent = "Preenche todos os campos.";
+    $("ghConfigMsg").textContent = "Preenche pelo menos token, organização, repositório e caminho.";
     $("ghConfigMsg").style.color = "var(--red)";
     return;
   }
-  GH_TOKEN=token; GH_OWNER=owner; GH_REPO=repo; GH_PATH=path;
+  GH_TOKEN=token; GH_OWNER=owner; GH_REPO=repo; GH_PATH=path; GH_BRANCH=branch;
   localStorage.setItem(LS_GH_TOKEN, GH_TOKEN);
   localStorage.setItem(LS_GH_OWNER, GH_OWNER);
   localStorage.setItem(LS_GH_REPO, GH_REPO);
   localStorage.setItem(LS_GH_PATH, GH_PATH);
-  $("ghConfigMsg").textContent = "Testando conexão e sincronizando…";
+  localStorage.setItem(LS_GH_BRANCH, GH_BRANCH);
+  $("ghConfigMsg").textContent = "Testando conexão e buscando os dados atuais…";
   $("ghConfigMsg").style.color = "var(--gray)";
   try{
-    await ghSincronizar(true);
-    $("ghConfigMsg").textContent = "Conectado e sincronizado com sucesso!";
+    await ghBuscarEMesclar();
+    $("ghConfigMsg").textContent = "Conectado! Dados atualizados com sucesso.";
     $("ghConfigMsg").style.color = "#2C7A4B";
     setTimeout(()=> $("modalGhConfig").classList.add("hide"), 1200);
   }catch(err){
-    $("ghConfigMsg").textContent = "Erro: "+err.message+" — confira token, organização, repositório e caminho.";
+    $("ghConfigMsg").textContent = "Erro: "+err.message+" — confira token, organização, repositório, caminho e branch.";
     $("ghConfigMsg").style.color = "var(--red)";
   }
 };
 $("ghDesconectar").onclick = ()=>{
   if(!confirm("Desconectar do GitHub? Os dados que já estão neste navegador continuam salvos aqui, só para de sincronizar com o repositório.")) return;
-  GH_TOKEN=""; GH_OWNER=""; GH_REPO=""; GH_PATH=""; GH_SHA=null;
-  [LS_GH_TOKEN,LS_GH_OWNER,LS_GH_REPO,LS_GH_PATH,LS_GH_SHA].forEach(k=>localStorage.removeItem(k));
+  GH_TOKEN=""; GH_OWNER=""; GH_REPO=""; GH_PATH=""; GH_BRANCH=""; GH_SHA=null;
+  [LS_GH_TOKEN,LS_GH_OWNER,LS_GH_REPO,LS_GH_PATH,LS_GH_BRANCH,LS_GH_SHA].forEach(k=>localStorage.removeItem(k));
   atualizarStatusGh("");
   $("modalGhConfig").classList.add("hide");
 };
@@ -1159,11 +1241,11 @@ function ligarBotoesItem(){
       const id = btn.dataset.id, act = btn.dataset.act;
       const r = REGISTROS.find(x=>x.id===id);
       if(!r) return;
-      if(act==="cobrado"){ r.status="Cobrado"; salvar(); renderTudo(); }
+      if(act==="cobrado"){ r.status="Cobrado"; r.atualizadoEm=Date.now(); salvar(); renderTudo(); }
       else if(act==="cobraremail"){ cobrarPorEmail(r); }
-      else if(act==="resolvido"){ r.status="Resolvido"; r.resolvidoEm=hojeISO(); r.resolvidoEmEstimado=false; salvar(); renderTudo(); }
-      else if(act==="reabrir"){ r.status="Aberto"; r.resolvidoEm=null; r.resolvidoEmEstimado=false; salvar(); renderTudo(); }
-      else if(act==="excluir"){ if(confirm("Excluir este registro?")){ const rr = REGISTROS.find(x=>x.id===id); if(rr){ rr.excluido=true; rr.excluidoEm=hojeISO(); } salvar(); renderTudo(); } }
+      else if(act==="resolvido"){ r.status="Resolvido"; r.resolvidoEm=hojeISO(); r.resolvidoEmEstimado=false; r.atualizadoEm=Date.now(); salvar(); renderTudo(); }
+      else if(act==="reabrir"){ r.status="Aberto"; r.resolvidoEm=null; r.resolvidoEmEstimado=false; r.atualizadoEm=Date.now(); salvar(); renderTudo(); }
+      else if(act==="excluir"){ if(confirm("Excluir este registro?")){ const rr = REGISTROS.find(x=>x.id===id); if(rr){ rr.excluido=true; rr.excluidoEm=hojeISO(); rr.atualizadoEm=Date.now(); } salvar(); renderTudo(); } }
       else if(act==="followup"){ abrirFollowup(id); }
       else if(act==="editar"){ abrirEdicao(r); }
     };
@@ -1231,6 +1313,7 @@ function abrirConfirmacaoCobranca(r, email, assunto, corpo){
     r.status = "Cobrado";
     r.historicoCobranca = r.historicoCobranca || [];
     r.historicoCobranca.push({data: hojeISO(), canal:"email"});
+    r.atualizadoEm = Date.now();
     salvar(); renderTudo();
     $("modalCobranca").classList.add("hide");
   };
@@ -1252,6 +1335,7 @@ $("fuSalvar").onclick = ()=>{
   r.historico = r.historico || [];
   r.historico.push({data: hojeISO(), nota, prazo: $("fuPrazo").value || null});
   if($("fuPrazo").value){ r.prazo = $("fuPrazo").value; r.status = "Aberto"; }
+  r.atualizadoEm = Date.now();
   salvar();
   $("modalFollowup").classList.add("hide");
   renderTudo();
@@ -1276,6 +1360,7 @@ $("edSalvar").onclick = ()=>{
   r.nota = nota;
   r.respCompromisso = $("edNome").value.trim();
   r.prazo = $("edPrazo").value || null;
+  r.atualizadoEm = Date.now();
   salvar();
   $("modalEditar").classList.add("hide");
   renderTudo();
@@ -1748,8 +1833,12 @@ verificarAlertaHoje();
 setInterval(verificarAlertaHoje, 10*60*1000); // reconfere a cada 10 minutos, enquanto a aba ficar aberta
 
 if(ghConfigurado()){
-  ghSincronizar(true).catch(()=>{}); // sincroniza ao abrir, se já estiver configurado
-  setInterval(()=>{ ghSincronizar(false).catch(()=>{}); }, 3*60*1000); // busca o que os outros gravaram, a cada 3 min
+  // Ao abrir: só BUSCA e mescla — nunca grava automaticamente (evita empurrar um estado
+  // local incompleto/desatualizado por cima do que já está no repositório).
+  ghBuscarEMesclar().catch(err=>{ console.error("Erro ao buscar do GitHub na abertura:", err); atualizarStatusGh("⚠ falha ao atualizar", "#F3B77A"); });
+  setInterval(()=>{
+    if(!ghSyncEmAndamento) ghBuscarEMesclar().catch(()=>{});
+  }, 60*1000); // busca o que os outros gravaram, a cada 1 minuto
 }
 
 </script>
