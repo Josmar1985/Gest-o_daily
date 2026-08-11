@@ -666,7 +666,7 @@ function registrosDeHojeDoProjeto(projetoId){
     .sort((a,b)=> (b.criadoEm||0)-(a.criadoEm||0));
 }
 
-function montarReuniao(){
+function montarReuniao(preservarFormulario){
   $("reuniaoSemProjetos").classList.toggle("hide", PROJETOS.length>0);
   const nenhum = idx===-1 && !terminou;
   $("reuniaoAndamento").classList.toggle("hide", PROJETOS.length===0 || terminou || nenhum);
@@ -686,11 +686,14 @@ function montarReuniao(){
   $("reuniaoNum").textContent = `Projeto ${idx+1} de ${PROJETOS.length}`;
   $("reuniaoNome").textContent = p.nome;
   $("rInfoHistorico").innerHTML = renderInfoLogHTML(p);
-  $("rInfoNova").value = "";
 
-  // O formulário sempre começa vazio — pode haver vários itens no mesmo projeto,
-  // os que já foram lançados hoje aparecem no painel ao lado, não pré-preenchidos aqui.
-  $("rNota").value = ""; $("rNome").value = ""; $("rPrazo").value = "";
+  // Atualizações de fundo (sincronização automática) NÃO mexem no que você está digitando
+  // e ainda não salvou — só a navegação entre projetos (Próximo/Anterior/pular) limpa o
+  // formulário de propósito, porque aí sim é um projeto novo.
+  if(!preservarFormulario){
+    $("rInfoNova").value = "";
+    $("rNota").value = ""; $("rNome").value = ""; $("rPrazo").value = "";
+  }
 
   $("btnAnterior").disabled = idx===0;
   $("btnProximo").textContent = idx===PROJETOS.length-1 ? "Salvar e concluir ✓" : "Salvar e próximo →";
@@ -1039,32 +1042,43 @@ function consolidarProjetosDuplicados(){
   REGISTROS.forEach(r=>{ if(remap[r.projetoId]){ r.projetoId = remap[r.projetoId]; registrosRemapeados++; } });
 
   // Além de consolidar projetos duplicados, limpa anotações de informação duplicadas
-  // DENTRO de cada projeto que sobrou (efeito colateral do bug de id aleatório em versões
-  // anteriores). Agrupa por CONTEÚDO (texto + data), não pelo id — porque duplicatas
-  // criadas antes da correção já tinham ids aleatórios diferentes entre si, então
-  // comparar só por id não as reconhece como a mesma anotação. Ao final, padroniza o id
-  // pra versão determinística, pra convergir em qualquer dispositivo daqui pra frente.
+  // DENTRO de cada projeto que sobrou. IMPORTANTE: uma anotação que JÁ TEM id nunca tem
+  // esse id recalculado aqui (mesmo que o texto tenha sido editado depois) — o id precisa
+  // ficar fixo pra sempre, senão a sincronização deixa de reconhecer "isso é a mesma
+  // anotação, só editada" e passa a tratar a edição como um item novo (duplicando).
+  // Só anotações realmente antigas, sem id nenhum (de antes dessa funcionalidade existir),
+  // ganham um id novo aqui — calculado a partir do conteúdo delas, uma única vez.
   let anotacoesRemovidas = 0;
   PROJETOS.forEach(p=>{
     if(!p.infoLog || !p.infoLog.length) return;
+    const comId = p.infoLog.filter(e=>e.id);
+    const semId = p.infoLog.filter(e=>!e.id);
+
+    // 1) entre as que já têm id: remove só duplicata EXATA de id (nunca mexe no id em si)
+    const porId = {};
+    const unicasComId = [];
+    comId.forEach(e=>{
+      const existente = porId[e.id];
+      if(!existente){ porId[e.id]=e; unicasComId.push(e); return; }
+      anotacoesRemovidas++;
+      if(e.excluido) existente.excluido = true;
+      if(e.excluidoEm && (!existente.excluidoEm || e.excluidoEm>existente.excluidoEm)) existente.excluidoEm = e.excluidoEm;
+      if((e.editadoEm||0) > (existente.editadoEm||0)){ existente.texto = e.texto; existente.editadoEm = e.editadoEm; }
+    });
+
+    // 2) entre as que NUNCA tiveram id: agrupa por conteúdo e batiza uma vez só
     const porConteudo = {};
-    const unicas = [];
-    p.infoLog.forEach(e=>{
+    const unicasSemId = [];
+    semId.forEach(e=>{
       const chave = (e.data||"")+"|"+(e.texto||"");
       const existente = porConteudo[chave];
-      if(!existente){
-        e.id = hashTexto(chave);
-        porConteudo[chave] = e;
-        unicas.push(e);
-        return;
-      }
+      if(!existente){ e.id = hashTexto(chave); porConteudo[chave]=e; unicasSemId.push(e); return; }
       anotacoesRemovidas++;
-      if(e.excluido) existente.excluido = true; // se qualquer cópia foi cancelada, vale o cancelamento
+      if(e.excluido) existente.excluido = true;
       if(e.excluidoEm && (!existente.excluidoEm || e.excluidoEm>existente.excluidoEm)) existente.excluidoEm = e.excluidoEm;
-      const tE=e.editadoEm||0, tEx=existente.editadoEm||0;
-      if(tE>tEx) existente.editadoEm = e.editadoEm;
     });
-    p.infoLog = unicas;
+
+    p.infoLog = [...unicasComId, ...unicasSemId];
   });
 
   return {removidos, registrosRemapeados, anotacoesRemovidas};
@@ -1077,7 +1091,7 @@ $("btnConsolidarDup").onclick = async ()=>{
     return;
   }
   salvar();
-  montarSelects(); renderTudo();
+  montarSelects(); renderTudo(true);
   let msg = `Corrigido: ${antes} → ${PROJETOS.length} projetos (${removidos} duplicado${removidos!==1?"s":""} removido${removidos!==1?"s":""}).`;
   if(registrosRemapeados) msg += ` ${registrosRemapeados} registro${registrosRemapeados>1?"s":""} reapontado${registrosRemapeados>1?"s":""}.`;
   if(anotacoesRemovidas) msg += ` ${anotacoesRemovidas} anotação${anotacoesRemovidas>1?"ões":""} de informação duplicada${anotacoesRemovidas>1?"s":""} removida${anotacoesRemovidas>1?"s":""}.`;
@@ -1123,7 +1137,7 @@ async function ghBuscarEMesclar(){
     localStorage.setItem(LS_PROJ, JSON.stringify(PROJETOS));
     localStorage.setItem(LS_REG, JSON.stringify(REGISTROS));
     localStorage.setItem(LS_CONTATOS, JSON.stringify(CONTATOS));
-    montarSelects(); renderTudo();
+    montarSelects(); renderTudo(true);
     atualizarStatusGh("✓ atualizado às "+new Date().toLocaleTimeString("pt-BR").slice(0,5), "#8FD19E");
     return resumo;
   }catch(err){
@@ -1148,7 +1162,7 @@ async function ghEnviarAgora(){
       mesclarRemoto(remoto.content);
       consolidarProjetosDuplicados(); // garante que a mesclagem nunca reintroduz duplicatas antigas
       salvar();
-      montarSelects(); renderTudo();
+      montarSelects(); renderTudo(true);
       const novoSha = await ghPut(pacoteAtual(), remoto.sha);
       GH_SHA = novoSha;
       localStorage.setItem(LS_GH_SHA, GH_SHA||"");
@@ -1763,8 +1777,8 @@ $("cpEmail").onclick = ()=>{
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 };
 
-function renderTudo(){
-  montarReuniao(); renderCobrancas(); renderProjetos(); renderHistorico(); renderAnalises();
+function renderTudo(preservarFormulario){
+  montarReuniao(preservarFormulario); renderCobrancas(); renderProjetos(); renderHistorico(); renderAnalises();
 }
 
 /* ================= ANÁLISES ================= */
