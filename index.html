@@ -515,6 +515,7 @@ function salvar(){
     const regAtual = JSON.parse(localStorage.getItem(LS_REG) || "[]");
     mesclarRemoto({projetos:projAtual, registros:regAtual, contatos:{}});
   }catch(e){ /* se o que está no localStorage estiver corrompido, ignora e grava só o que temos */ }
+  consolidarProjetosDuplicados(); // rede de segurança final — nunca deixa duplicata sobreviver a um salvar()
   localStorage.setItem(LS_PROJ, JSON.stringify(PROJETOS));
   localStorage.setItem(LS_REG, JSON.stringify(REGISTROS));
   ghAgendarPush();
@@ -1039,21 +1040,29 @@ function consolidarProjetosDuplicados(){
 
   // Além de consolidar projetos duplicados, limpa anotações de informação duplicadas
   // DENTRO de cada projeto que sobrou (efeito colateral do bug de id aleatório em versões
-  // anteriores) — mantém uma só por id, preferindo a versão marcada como excluída se
-  // qualquer cópia tiver sido cancelada.
+  // anteriores). Agrupa por CONTEÚDO (texto + data), não pelo id — porque duplicatas
+  // criadas antes da correção já tinham ids aleatórios diferentes entre si, então
+  // comparar só por id não as reconhece como a mesma anotação. Ao final, padroniza o id
+  // pra versão determinística, pra convergir em qualquer dispositivo daqui pra frente.
   let anotacoesRemovidas = 0;
   PROJETOS.forEach(p=>{
     if(!p.infoLog || !p.infoLog.length) return;
-    p.infoLog.forEach(e=>{ if(!e.id) e.id = hashTexto((e.data||"")+"|"+(e.texto||"")); });
-    const porId = {};
+    const porConteudo = {};
     const unicas = [];
     p.infoLog.forEach(e=>{
-      const existente = porId[e.id];
-      if(!existente){ porId[e.id]=e; unicas.push(e); return; }
+      const chave = (e.data||"")+"|"+(e.texto||"");
+      const existente = porConteudo[chave];
+      if(!existente){
+        e.id = hashTexto(chave);
+        porConteudo[chave] = e;
+        unicas.push(e);
+        return;
+      }
       anotacoesRemovidas++;
       if(e.excluido) existente.excluido = true; // se qualquer cópia foi cancelada, vale o cancelamento
+      if(e.excluidoEm && (!existente.excluidoEm || e.excluidoEm>existente.excluidoEm)) existente.excluidoEm = e.excluidoEm;
       const tE=e.editadoEm||0, tEx=existente.editadoEm||0;
-      if(tE>tEx){ existente.texto=e.texto; existente.editadoEm=e.editadoEm; }
+      if(tE>tEx) existente.editadoEm = e.editadoEm;
     });
     p.infoLog = unicas;
   });
@@ -1105,6 +1114,7 @@ async function ghBuscarEMesclar(){
     const remotosRegistros = (remoto.content && remoto.content.registros) ? remoto.content.registros.length : 0;
     const localAntes = REGISTROS.length;
     const resumo = mesclarRemoto(remoto.content);
+    consolidarProjetosDuplicados(); // garante que a mesclagem nunca reintroduz duplicatas antigas
     console.log(`[sync] buscar: remoto tinha ${remotosRegistros} registro(s) · local tinha ${localAntes} antes · `+
       `${localAntes} + ${resumo.registrosAdicionados} adicionado(s) + ${resumo.registrosAtualizados} atualizado(s) = ${REGISTROS.length} agora · `+
       `sha remoto: ${remoto.sha}`);
@@ -1136,6 +1146,7 @@ async function ghEnviarAgora(){
     try{
       const remoto = await ghGet();
       mesclarRemoto(remoto.content);
+      consolidarProjetosDuplicados(); // garante que a mesclagem nunca reintroduz duplicatas antigas
       salvar();
       montarSelects(); renderTudo();
       const novoSha = await ghPut(pacoteAtual(), remoto.sha);
