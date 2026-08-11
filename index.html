@@ -409,6 +409,11 @@
       <label>Branch (opcional — deixe em branco para usar a branch padrão do repositório)</label>
       <input type="text" id="ghBranch" placeholder="master">
     </div>
+    <div style="background:#F4F7FB;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;margin-bottom:4px">Resumo da configuração atual (compare com a da outra pessoa, letra por letra)</div>
+      <div id="ghResumoConfig" style="font-size:12.5px;font-family:ui-monospace,Consolas,monospace;color:var(--ink);word-break:break-all">— nada configurado ainda —</div>
+      <button class="btn btn-ghost btn-sm" id="ghCopiarResumo" style="margin-top:4px;padding:2px 0">Copiar resumo</button>
+    </div>
     <div id="ghConfigMsg" style="font-size:12.5px;color:var(--gray);min-height:18px"></div>
     <div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:10px">
       <button class="btn btn-ghost btn-sm" id="ghDesconectar" style="color:var(--red)">Desconectar</button>
@@ -1078,6 +1083,12 @@ $("btnAtualizarAgora").onclick = async ()=>{
   catch(err){ alert("Não consegui buscar do GitHub: "+err.message); }
 };
 
+function ghMontarResumo(){
+  const owner = $("ghOwner").value.trim(), repo = $("ghRepo").value.trim(),
+        path = $("ghPath").value.trim(), branch = $("ghBranch").value.trim();
+  if(!owner && !repo && !path){ $("ghResumoConfig").textContent = "— nada configurado ainda —"; return; }
+  $("ghResumoConfig").textContent = `${owner || "?"} / ${repo || "?"} / ${path || "?"} / branch: ${branch || "(padrão do repositório)"}`;
+}
 $("btnGhConfig").onclick = ()=>{
   $("ghToken").value = GH_TOKEN;
   $("ghOwner").value = GH_OWNER;
@@ -1086,7 +1097,15 @@ $("btnGhConfig").onclick = ()=>{
   $("ghBranch").value = GH_BRANCH;
   $("ghConfigMsg").textContent = ghConfigurado() ? "Já conectado. Alterar e salvar reconecta." : "";
   $("ghConfigMsg").style.color = "var(--gray)";
+  ghMontarResumo();
   $("modalGhConfig").classList.remove("hide");
+};
+["ghOwner","ghRepo","ghPath","ghBranch"].forEach(id=> $(id).oninput = ghMontarResumo);
+$("ghCopiarResumo").onclick = ()=>{
+  navigator.clipboard.writeText($("ghResumoConfig").textContent).then(()=>{
+    $("ghCopiarResumo").textContent = "Copiado ✓";
+    setTimeout(()=>{ $("ghCopiarResumo").textContent = "Copiar resumo"; }, 1500);
+  });
 };
 $("ghCancelar").onclick = ()=> $("modalGhConfig").classList.add("hide");
 $("ghSalvarConfig").onclick = async ()=>{
