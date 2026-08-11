@@ -949,7 +949,15 @@ function mesclarRemoto(remoto){
           const local = porIdInfoLocal[e.id];
           if(!local){ existente.infoLog.push({...e}); porIdInfoLocal[e.id]=e; mudou=true; return; }
           const tLocal = local.editadoEm||0, tRemoto = e.editadoEm||0;
-          if(tRemoto > tLocal){ Object.assign(local, e); mudou=true; }
+          if(tRemoto > tLocal){
+            // nunca sobrescreve id/data (data de criação é fixa pra sempre) — só os campos
+            // que uma edição de verdade poderia mudar
+            local.texto = e.texto;
+            local.editadoEm = e.editadoEm;
+            if(e.excluido) local.excluido = true;
+            if(e.excluidoEm) local.excluidoEm = e.excluidoEm;
+            mudou = true;
+          }
         });
         if(mudou) projetosAtualizados++;
       }
