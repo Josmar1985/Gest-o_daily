@@ -418,6 +418,7 @@
     <div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:10px">
       <button class="btn btn-ghost btn-sm" id="ghDesconectar" style="color:var(--red)">Desconectar</button>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-soft btn-sm" id="ghTestar">🧪 Testar leitura/escrita</button>
         <button class="btn btn-soft btn-sm" id="ghCancelar">Fechar</button>
         <button class="btn btn-sm" id="ghSalvarConfig">Salvar e sincronizar</button>
       </div>
@@ -858,6 +859,8 @@ async function ghPut(conteudo, sha){
   let res;
   try{ res = await fetch(ghUrl().split("?")[0], {method:"PUT", headers:{...ghHeaders(), "Content-Type":"application/json"}, body: JSON.stringify(body)}); }
   catch(e){ const err = new Error("Falha de rede ao gravar no GitHub — confira sua internet."); err.status=0; throw err; }
+  if(res.status===401){ const e = new Error("Token inválido ou expirado (401) — não consegue nem se autenticar."); e.status=401; throw e; }
+  if(res.status===403){ const e = new Error("Autenticado, mas SEM PERMISSÃO DE ESCRITA nesse repositório (403) — o token provavelmente só tem 'Read' e precisa de 'Read and write' em Contents."); e.status=403; throw e; }
   if(!res.ok){
     const err = await res.json().catch(()=>({}));
     const e = new Error(err.message || `GitHub respondeu ${res.status} ao gravar o arquivo.`);
@@ -1063,6 +1066,8 @@ async function ghEnviarAgora(){
   }
   atualizarStatusGh("⚠ falha ao sincronizar", "#F3B77A");
   console.error("Erro de sincronização com o GitHub:", ultimaExcecao);
+  const el = $("ghSyncStatus");
+  if(el) el.title = "Erro: " + (ultimaExcecao ? ultimaExcecao.message : "desconhecido") + " — clique em \"🔗 GitHub\" para revisar.";
   throw ultimaExcecao;
 }
 
@@ -1133,6 +1138,45 @@ $("ghSalvarConfig").onclick = async ()=>{
   }catch(err){
     $("ghConfigMsg").textContent = "Erro: "+err.message+" — confira token, organização, repositório, caminho e branch.";
     $("ghConfigMsg").style.color = "var(--red)";
+  }
+};
+$("ghTestar").onclick = async ()=>{
+  const token = $("ghToken").value.trim(), owner = $("ghOwner").value.trim(),
+        repo = $("ghRepo").value.trim(), path = $("ghPath").value.trim(),
+        branch = $("ghBranch").value.trim();
+  if(!token || !owner || !repo || !path){
+    $("ghConfigMsg").textContent = "Preenche pelo menos token, organização, repositório e caminho antes de testar.";
+    $("ghConfigMsg").style.color = "var(--red)";
+    return;
+  }
+  // usa os valores DIGITADOS NO MOMENTO (mesmo sem clicar em Salvar ainda), testando
+  // com as credenciais reais desta janela, sem depender do que já estava configurado antes
+  const tokenAntes=GH_TOKEN, ownerAntes=GH_OWNER, repoAntes=GH_REPO, pathAntes=GH_PATH, branchAntes=GH_BRANCH;
+  GH_TOKEN=token; GH_OWNER=owner; GH_REPO=repo; GH_PATH=path; GH_BRANCH=branch;
+  $("ghConfigMsg").textContent = "Testando leitura…";
+  $("ghConfigMsg").style.color = "var(--gray)";
+  $("ghTestar").disabled = true;
+  try{
+    let remoto;
+    try{
+      remoto = await ghGet();
+    }catch(err){
+      $("ghConfigMsg").textContent = "❌ Leitura falhou: " + err.message;
+      $("ghConfigMsg").style.color = "var(--red)";
+      return;
+    }
+    $("ghConfigMsg").textContent = "✓ Leitura OK. Testando escrita (grava o mesmo conteúdo de volta, não altera nada)…";
+    try{
+      await ghPut(remoto.content || {tipo:"gestao_daily_backup", versao:2, projetos:[], registros:[], contatos:{}}, remoto.sha);
+      $("ghConfigMsg").textContent = "✓ Leitura OK. ✓ Escrita OK. Essa configuração funciona de ponta a ponta.";
+      $("ghConfigMsg").style.color = "#2C7A4B";
+    }catch(err){
+      $("ghConfigMsg").textContent = "✓ Leitura OK, mas ❌ Escrita falhou: " + err.message;
+      $("ghConfigMsg").style.color = "var(--red)";
+    }
+  } finally {
+    GH_TOKEN=tokenAntes; GH_OWNER=ownerAntes; GH_REPO=repoAntes; GH_PATH=pathAntes; GH_BRANCH=branchAntes;
+    $("ghTestar").disabled = false;
   }
 };
 $("ghDesconectar").onclick = ()=>{
