@@ -569,7 +569,7 @@ function renderProjetos(){
     return;
   }
   tb.innerHTML = PROJETOS.map(p=>{
-    const log = infoLogDe(p);
+    const log = infoLogDe(p).filter(e=>!e.excluido);
     const preview = log.length
       ? `<b>${log.length}</b> anotação${log.length>1?"ões":""} · última: ${esc(log[log.length-1].texto.slice(0,60))}${log[log.length-1].texto.length>60?"…":""}`
       : '<span style="color:var(--gray)">— sem informações —</span>';
@@ -587,21 +587,63 @@ function removerProjeto(id){
 }
 function nomeProjeto(id){ const p = PROJETOS.find(x=>x.id===id); return p?p.nome:"(projeto removido)"; }
 
-// Histórico de informações do projeto — lista de {data, texto}, nunca sobrescreve.
-// Migra automaticamente quem já tinha usado o campo antigo (texto único, sem data).
+// Histórico de informações do projeto — lista de {id, data, texto, excluido?}, nunca
+// sobrescreve (só marca como excluído, pra exclusão sobreviver à sincronização entre
+// dispositivos do mesmo jeito que os itens da Reunião do Dia).
+function hashTexto(s){
+  // hash simples e determinístico (mesmo texto = sempre o mesmo resultado, em qualquer dispositivo)
+  let h = 0;
+  for(let i=0;i<s.length;i++){ h = ((h<<5)-h + s.charCodeAt(i))|0; }
+  return "legado_"+Math.abs(h).toString(36);
+}
 function infoLogDe(p){
   if(!p.infoLog){
     p.infoLog = [];
-    if(p.info){ p.infoLog.push({data: hojeISO(), texto: p.info}); delete p.info; }
+    if(p.info){ p.infoLog.push({id:novoId(), data: hojeISO(), texto: p.info}); delete p.info; }
   }
+  // migra entradas antigas que não tinham id ainda — usa um id DETERMINÍSTICO (baseado no
+  // próprio conteúdo), não sorteado, pra que a mesma anotação antiga vire o mesmo id em
+  // qualquer computador, e não duplique ao sincronizar.
+  p.infoLog.forEach(e=>{ if(!e.id) e.id = hashTexto((e.data||"")+"|"+(e.texto||"")); });
   return p.infoLog;
 }
 function renderInfoLogHTML(p){
-  const log = infoLogDe(p);
+  const log = infoLogDe(p).filter(e=>!e.excluido);
   if(!log.length) return '<div style="color:var(--gray);font-size:12.5px">Nenhuma informação registrada ainda.</div>';
   return [...log].reverse().map(e=>
-    `<div style="font-size:12.5px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--line)"><b>${brDate(e.data)}:</b> ${esc(e.texto)}</div>`
+    `<div style="font-size:12.5px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--line)">
+      <div><b>${brDate(e.data)}:</b> ${esc(e.texto)}</div>
+      <div style="margin-top:3px"><a href="#" onclick="editarInfoLog('${p.id}','${e.id}');return false;" style="font-size:11.5px;color:var(--blue);text-decoration:none;margin-right:10px">✎ editar</a><a href="#" onclick="excluirInfoLog('${p.id}','${e.id}');return false;" style="font-size:11.5px;color:var(--red);text-decoration:none">✕ cancelar</a></div>
+    </div>`
   ).join("");
+}
+function editarInfoLog(projetoId, entradaId){
+  const p = PROJETOS.find(x=>x.id===projetoId);
+  if(!p) return;
+  const entrada = infoLogDe(p).find(e=>e.id===entradaId);
+  if(!entrada) return;
+  const novoTexto = prompt("Editar anotação:", entrada.texto);
+  if(novoTexto===null) return; // cancelou o prompt, não mexe em nada
+  if(!novoTexto.trim()){ alert("A anotação não pode ficar em branco — use \"cancelar\" se quiser removê-la."); return; }
+  entrada.texto = novoTexto.trim();
+  entrada.editadoEm = Date.now();
+  salvar();
+  renderProjetos();
+  if($("rInfoHistorico")) $("rInfoHistorico").innerHTML = renderInfoLogHTML(p);
+  if($("ipHistorico")) $("ipHistorico").innerHTML = renderInfoLogHTML(p);
+}
+function excluirInfoLog(projetoId, entradaId){
+  if(!confirm("Cancelar esta anotação?")) return;
+  const p = PROJETOS.find(x=>x.id===projetoId);
+  if(!p) return;
+  const entrada = infoLogDe(p).find(e=>e.id===entradaId);
+  if(!entrada) return;
+  entrada.excluido = true;
+  entrada.editadoEm = Date.now();
+  salvar();
+  renderProjetos();
+  if($("rInfoHistorico")) $("rInfoHistorico").innerHTML = renderInfoLogHTML(p);
+  if($("ipHistorico")) $("ipHistorico").innerHTML = renderInfoLogHTML(p);
 }
 
 function montarSelects(){
@@ -677,7 +719,7 @@ $("btnSalvarInfoProjeto").onclick = ()=>{
   if(!p) return;
   const texto = $("rInfoNova").value.trim();
   if(!texto) return;
-  infoLogDe(p).push({data: hojeISO(), texto});
+  infoLogDe(p).push({id:novoId(), data: hojeISO(), texto});
   salvar();
   $("rInfoNova").value = "";
   $("rInfoHistorico").innerHTML = renderInfoLogHTML(p);
@@ -897,9 +939,18 @@ function mesclarRemoto(remoto){
       if(p.id!==existente.id) remapProjeto[p.id] = existente.id;
       if(p.infoLog && p.infoLog.length){
         existente.infoLog = existente.infoLog || [];
-        const chavesLocais = new Set(existente.infoLog.map(e=>e.data+"|"+e.texto));
+        // garante que toda entrada (local e remota) tenha um id determinístico antes de comparar
+        existente.infoLog.forEach(e=>{ if(!e.id) e.id = hashTexto((e.data||"")+"|"+(e.texto||"")); });
+        p.infoLog.forEach(e=>{ if(!e.id) e.id = hashTexto((e.data||"")+"|"+(e.texto||"")); });
+        const porIdInfoLocal = {};
+        existente.infoLog.forEach(e=> porIdInfoLocal[e.id]=e);
         let mudou = false;
-        p.infoLog.forEach(e=>{ if(!chavesLocais.has(e.data+"|"+e.texto)){ existente.infoLog.push(e); mudou=true; } });
+        p.infoLog.forEach(e=>{
+          const local = porIdInfoLocal[e.id];
+          if(!local){ existente.infoLog.push({...e}); porIdInfoLocal[e.id]=e; mudou=true; return; }
+          const tLocal = local.editadoEm||0, tRemoto = e.editadoEm||0;
+          if(tRemoto > tLocal){ Object.assign(local, e); mudou=true; }
+        });
         if(mudou) projetosAtualizados++;
       }
     } else if(!idsProjLocais.has(p.id)){
@@ -963,8 +1014,10 @@ function consolidarProjetosDuplicados(){
       remap[p.id] = porNome[nome].id;
       if(p.infoLog && p.infoLog.length){
         porNome[nome].infoLog = porNome[nome].infoLog || [];
-        const chaves = new Set(porNome[nome].infoLog.map(e=>e.data+"|"+e.texto));
-        p.infoLog.forEach(e=>{ if(!chaves.has(e.data+"|"+e.texto)) porNome[nome].infoLog.push(e); });
+        porNome[nome].infoLog.forEach(e=>{ if(!e.id) e.id = hashTexto((e.data||"")+"|"+(e.texto||"")); });
+        p.infoLog.forEach(e=>{ if(!e.id) e.id = hashTexto((e.data||"")+"|"+(e.texto||"")); });
+        const idsInfoLocais = new Set(porNome[nome].infoLog.map(e=>e.id));
+        p.infoLog.forEach(e=>{ if(!idsInfoLocais.has(e.id)){ porNome[nome].infoLog.push(e); idsInfoLocais.add(e.id); } });
       }
     } else {
       porNome[nome] = p;
@@ -975,18 +1028,42 @@ function consolidarProjetosDuplicados(){
   PROJETOS = sobreviventes;
   let registrosRemapeados = 0;
   REGISTROS.forEach(r=>{ if(remap[r.projetoId]){ r.projetoId = remap[r.projetoId]; registrosRemapeados++; } });
-  return {removidos, registrosRemapeados};
+
+  // Além de consolidar projetos duplicados, limpa anotações de informação duplicadas
+  // DENTRO de cada projeto que sobrou (efeito colateral do bug de id aleatório em versões
+  // anteriores) — mantém uma só por id, preferindo a versão marcada como excluída se
+  // qualquer cópia tiver sido cancelada.
+  let anotacoesRemovidas = 0;
+  PROJETOS.forEach(p=>{
+    if(!p.infoLog || !p.infoLog.length) return;
+    p.infoLog.forEach(e=>{ if(!e.id) e.id = hashTexto((e.data||"")+"|"+(e.texto||"")); });
+    const porId = {};
+    const unicas = [];
+    p.infoLog.forEach(e=>{
+      const existente = porId[e.id];
+      if(!existente){ porId[e.id]=e; unicas.push(e); return; }
+      anotacoesRemovidas++;
+      if(e.excluido) existente.excluido = true; // se qualquer cópia foi cancelada, vale o cancelamento
+      const tE=e.editadoEm||0, tEx=existente.editadoEm||0;
+      if(tE>tEx){ existente.texto=e.texto; existente.editadoEm=e.editadoEm; }
+    });
+    p.infoLog = unicas;
+  });
+
+  return {removidos, registrosRemapeados, anotacoesRemovidas};
 }
 $("btnConsolidarDup").onclick = async ()=>{
   const antes = PROJETOS.length;
-  const {removidos, registrosRemapeados} = consolidarProjetosDuplicados();
-  if(!removidos){
-    alert("Não encontrei projetos duplicados pelo nome. Nada pra corrigir.");
+  const {removidos, registrosRemapeados, anotacoesRemovidas} = consolidarProjetosDuplicados();
+  if(!removidos && !anotacoesRemovidas){
+    alert("Não encontrei projetos nem anotações duplicadas. Nada pra corrigir.");
     return;
   }
   salvar();
   montarSelects(); renderTudo();
-  let msg = `Corrigido: ${antes} → ${PROJETOS.length} projetos (${removidos} duplicado${removidos>1?"s":""} removido${removidos>1?"s":""}, ${registrosRemapeados} registro${registrosRemapeados>1?"s":""} reapontado${registrosRemapeados>1?"s":""} pro projeto correto).`;
+  let msg = `Corrigido: ${antes} → ${PROJETOS.length} projetos (${removidos} duplicado${removidos!==1?"s":""} removido${removidos!==1?"s":""}).`;
+  if(registrosRemapeados) msg += ` ${registrosRemapeados} registro${registrosRemapeados>1?"s":""} reapontado${registrosRemapeados>1?"s":""}.`;
+  if(anotacoesRemovidas) msg += ` ${anotacoesRemovidas} anotação${anotacoesRemovidas>1?"ões":""} de informação duplicada${anotacoesRemovidas>1?"s":""} removida${anotacoesRemovidas>1?"s":""}.`;
   if(ghConfigurado()){
     msg += "\n\nEnviando a correção pro GitHub, pra todo mundo receber…";
     alert(msg);
@@ -1467,7 +1544,7 @@ $("ipSalvar").onclick = ()=>{
   if(!p) return;
   const texto = $("ipTexto").value.trim();
   if(!texto) return;
-  infoLogDe(p).push({data: hojeISO(), texto});
+  infoLogDe(p).push({id:novoId(), data: hojeISO(), texto});
   salvar();
   $("ipTexto").value = "";
   $("ipHistorico").innerHTML = renderInfoLogHTML(p);
@@ -1502,7 +1579,7 @@ function montarResumoTexto(escopo, resp){
     linhas.push(`▸ ${proj}`);
     const projObj = PROJETOS.find(p=>p.nome===proj);
     if(projObj){
-      const log = infoLogDe(projObj);
+      const log = infoLogDe(projObj).filter(e=>!e.excluido);
       log.forEach(e=> linhas.push(`   ℹ️ [${brDate(e.data)}] ${e.texto}`));
     }
     porProjeto[proj].forEach(r=>{
@@ -1589,7 +1666,7 @@ function gerarPdfResumo(escopo, resp){
     body.push([{content:proj, colSpan:4, styles:{fontStyle:"bold", fillColor:FUNDO, textColor:NAVY, fontSize:10.5, cellPadding:{top:6,bottom:6,left:6,right:6}}}]);
     const projObj = PROJETOS.find(p=>p.nome===proj);
     if(projObj){
-      infoLogDe(projObj).forEach(e=>{
+      infoLogDe(projObj).filter(e=>!e.excluido).forEach(e=>{
         body.push([{content:`ℹ️  [${brDate(e.data)}] ${e.texto}`, colSpan:4, styles:{fontStyle:"italic", textColor:CINZA, fontSize:9, cellPadding:{top:4,bottom:4,left:6,right:6}}}]);
       });
     }
